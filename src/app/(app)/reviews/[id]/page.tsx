@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { saveManagerReviewAction, saveSelfReviewAction } from "@/app/actions";
 import { Alert, Badge, Card, PageHeader } from "@/components/ui";
 import { SubmitButton } from "@/components/submit-button";
+import { PendingHint } from "@/components/pending-hint";
 import { getAppraisal } from "@/lib/pms/queries";
 import { ratingLabel } from "@/lib/format";
 
@@ -98,7 +99,7 @@ export default async function ReviewDetailPage({
                   </label>
                 ))}
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="submit"
                   name="intent"
@@ -115,6 +116,7 @@ export default async function ReviewDetailPage({
                 >
                   Submit to manager
                 </button>
+                <PendingHint label="Saving self-appraisal…" />
               </div>
             </form>
           ) : (
@@ -177,7 +179,7 @@ export default async function ReviewDetailPage({
                   </label>
                 ))}
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="submit"
                   name="intent"
@@ -189,6 +191,7 @@ export default async function ReviewDetailPage({
                 <SubmitButton name="intent" value="submit" pendingLabel="Completing…">
                   Complete review
                 </SubmitButton>
+                <PendingHint label="Saving manager assessment…" />
               </div>
             </form>
           ) : (

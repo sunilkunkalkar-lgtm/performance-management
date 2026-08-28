@@ -6,6 +6,7 @@ import {
 } from "@/app/actions";
 import { Alert, Badge, Card, PageHeader, Progress } from "@/components/ui";
 import { SubmitButton } from "@/components/submit-button";
+import { PendingHint } from "@/components/pending-hint";
 import { getGoal } from "@/lib/pms/queries";
 import { approvalLabel, formatDate, goalStatusLabel, percent } from "@/lib/format";
 
@@ -110,7 +111,7 @@ export default async function GoalDetailPage({
                     className="mt-1.5 w-full rounded-xl border border-line bg-cream/40 px-3 py-2.5 outline-none ring-teal focus:ring-2"
                   />
                 </label>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="submit"
                     name="decision"
@@ -127,6 +128,7 @@ export default async function GoalDetailPage({
                   >
                     Reject
                   </button>
+                  <PendingHint label="Updating approval…" />
                 </div>
               </form>
             </Card>
