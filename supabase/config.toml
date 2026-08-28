@@ -1,0 +1,17 @@
+# Minimal local Supabase config. Apply migrations with the Supabase CLI
+# (`supabase db reset` or paste into the SQL Editor). Do not point the
+# Next.js client at the service_role key — RLS is the security boundary.
+
+project_id = "pms-departmental"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public"]
+
+[db]
+port = 54322
+major_version = 15
+
+[auth]
+enabled = true
