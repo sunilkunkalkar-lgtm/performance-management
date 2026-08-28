@@ -10,7 +10,7 @@ import {
   Users,
 } from "lucide-react";
 import { ClerkSignOut } from "@/components/clerk-sign-out";
-import { logoutAction } from "@/app/actions";
+import { logoutAction, resetDemoAction } from "@/app/actions";
 import { clerkEnabled } from "@/lib/pms/context";
 import type { Actor } from "@/lib/pms/types";
 import { initials } from "@/lib/format";
@@ -42,6 +42,11 @@ export function AppShell({
             <p className="mt-0.5 text-xs uppercase tracking-[0.18em] text-paper/60">
               Performance
             </p>
+            {!signedInWithClerk ? (
+              <p className="mt-3 inline-flex rounded-full bg-gold/20 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-gold">
+                Demo · local mock
+              </p>
+            ) : null}
           </Link>
         </div>
         <nav className="flex gap-1 overflow-x-auto px-3 pb-3 lg:flex-col">
@@ -70,14 +75,24 @@ export function AppShell({
             {signedInWithClerk ? (
               <ClerkSignOut />
             ) : (
-              <form action={logoutAction}>
-                <button
-                  type="submit"
-                  className="inline-flex items-center gap-1 text-xs uppercase tracking-[0.16em] text-paper/55 hover:text-paper"
-                >
-                  <LogOut className="h-3 w-3" /> Sign out
-                </button>
-              </form>
+              <div className="space-y-2">
+                <form action={logoutAction}>
+                  <button
+                    type="submit"
+                    className="inline-flex items-center gap-1 text-xs uppercase tracking-[0.16em] text-paper/55 hover:text-paper"
+                  >
+                    <LogOut className="h-3 w-3" /> Sign out
+                  </button>
+                </form>
+                <form action={resetDemoAction}>
+                  <button
+                    type="submit"
+                    className="text-[10px] uppercase tracking-[0.16em] text-paper/40 hover:text-paper/80"
+                  >
+                    Reset mock data
+                  </button>
+                </form>
+              </div>
             )}
           </div>
         </div>

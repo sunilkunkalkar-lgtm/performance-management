@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { SESSION_COOKIE, signSession } from "@/lib/session";
-import { getDb } from "@/lib/pms/context";
+import { getDb, resetDb } from "@/lib/pms/context";
 import {
   createGoal,
   decideGoal,
@@ -36,6 +36,12 @@ export async function logoutAction() {
   const jar = await cookies();
   jar.delete(SESSION_COOKIE);
   redirect("/login");
+}
+
+export async function resetDemoAction() {
+  resetDb();
+  revalidatePath("/");
+  redirect("/dashboard");
 }
 
 export async function createGoalAction(formData: FormData) {

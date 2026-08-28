@@ -1,4 +1,4 @@
-import { getDb, requireActor } from "./context";
+import { getDb, persistDb, requireActor } from "./context";
 import { canAccess, fail, flightRisk, ok, peopleOf } from "./seed";
 import type { ApprovalStatus, GoalStatus, Result } from "./types";
 
@@ -102,6 +102,7 @@ export async function createGoal(input: {
       sortOrder: 1,
     });
   }
+  persistDb();
   return ok({ id: goalId });
 }
 
@@ -113,6 +114,7 @@ export async function submitGoal(goalId: string): Promise<Result<true>> {
   if (goal.employeeId !== actor.id && actor.role !== "admin") return fail("Only the owner can submit this goal.");
   goal.approvalStatus = "pending_approval";
   goal.submittedAt = new Date().toISOString();
+  persistDb();
   return ok(true);
 }
 
@@ -134,6 +136,7 @@ export async function decideGoal(
   goal.approvalStatus = decision;
   goal.managerComment = comment.trim();
   goal.reviewedAt = new Date().toISOString();
+  persistDb();
   return ok(true);
 }
 
@@ -153,6 +156,7 @@ export async function updateGoalProgress(input: {
   goal.status = input.status;
   const kr = db.keyResults.find((k) => k.goalId === goal.id);
   if (kr) kr.currentValue = input.currentValue;
+  persistDb();
   return ok(true);
 }
 
@@ -200,6 +204,7 @@ export async function saveSelfAppraisal(input: {
     const row = db.appraisalScores.find((s) => s.id === score.id);
     if (row) row.selfScore = score.value;
   }
+  persistDb();
   return ok(true);
 }
 
@@ -231,6 +236,7 @@ export async function saveManagerAppraisal(input: {
     const row = db.appraisalScores.find((s) => s.id === score.id);
     if (row) row.managerScore = score.value;
   }
+  persistDb();
   return ok(true);
 }
 
@@ -256,6 +262,7 @@ export async function postKudo(toEmployeeId: string, badge: string, message: str
     message: message.trim(),
     createdAt: new Date().toISOString(),
   });
+  persistDb();
   return ok(true);
 }
 
