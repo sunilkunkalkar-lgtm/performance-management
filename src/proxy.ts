@@ -2,10 +2,12 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { hasSessionCookie } from "@/lib/session";
 
-export function proxy(request: NextRequest) {
+const clerkKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+
+function demoProxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const loggedIn = hasSessionCookie(request.cookies.get("suii_session")?.value);
-  const isLogin = pathname === "/login";
+  const isLogin = pathname === "/login" || pathname.startsWith("/sign-in");
 
   if (!loggedIn && !isLogin) {
     const url = request.nextUrl.clone();
@@ -22,6 +24,31 @@ export function proxy(request: NextRequest) {
   return NextResponse.next();
 }
 
+async function clerkProxy(request: NextRequest, event: unknown) {
+  const { clerkMiddleware, createRouteMatcher } = await import("@clerk/nextjs/server");
+  const isPublicRoute = createRouteMatcher([
+    "/login(.*)",
+    "/sign-in(.*)",
+    "/sign-up(.*)",
+    "/api/webhooks(.*)",
+  ]);
+  const handler = clerkMiddleware(async (auth, req) => {
+    if (!isPublicRoute(req)) {
+      await auth.protect();
+    }
+  });
+  return handler(request, event as never);
+}
+
+const handler = clerkKey ? clerkProxy : demoProxy;
+
+export default handler;
+export const proxy = handler;
+
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
+  matcher: [
+    "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
+    "/(api|trpc)(.*)",
+    "/__clerk/(.*)",
+  ],
 };

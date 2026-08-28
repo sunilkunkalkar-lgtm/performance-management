@@ -1,60 +1,66 @@
 import { notFound } from "next/navigation";
 import { saveManagerReviewAction, saveSelfReviewAction } from "@/app/actions";
-import { requireUser } from "@/lib/auth";
-import { prisma } from "@/lib/db";
-import { Badge, Card, PageHeader } from "@/components/ui";
-import { ratingLabel, reviewLabel } from "@/lib/format";
+import { Alert, Badge, Card, PageHeader } from "@/components/ui";
+import { SubmitButton } from "@/components/submit-button";
+import { getAppraisal } from "@/lib/pms/queries";
+import { ratingLabel } from "@/lib/format";
 
 export default async function ReviewDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ error?: string }>;
 }) {
-  const user = await requireUser();
   const { id } = await params;
-  const review = await prisma.review.findUnique({
-    where: { id },
-    include: {
-      employee: true,
-      manager: true,
-      cycle: true,
-      competencies: true,
-    },
-  });
-  if (!review) notFound();
+  const { error } = await searchParams;
+  const { actor, appraisal, scores, people, cycle, error: loadError } = await getAppraisal(id);
+  if (!appraisal) {
+    if (loadError === "Review not found.") notFound();
+    return (
+      <div>
+        <PageHeader title="Review" />
+        <Alert>{loadError}</Alert>
+      </div>
+    );
+  }
 
-  const isEmployee = review.employeeId === user.id;
-  const isManager = review.managerId === user.id || user.role === "ADMIN";
-  const canSelf = isEmployee && review.status !== "COMPLETED";
+  const employee = people.find((p) => p.id === appraisal.employeeId);
+  const manager = people.find((p) => p.id === appraisal.managerId);
+  const isEmployee = actor.id === appraisal.employeeId;
+  const isManager = actor.id === appraisal.managerId || actor.role === "admin";
+  const canSelf = isEmployee && appraisal.selfStatus !== "completed";
   const canManager =
     isManager &&
-    (review.status === "MANAGER_REVIEW" || review.status === "COMPLETED" || user.role === "ADMIN");
+    (appraisal.selfStatus === "submitted" || appraisal.selfStatus === "completed");
 
   return (
     <div>
       <PageHeader
-        kicker={review.cycle.name}
-        title={`${review.employee.name} · review`}
-        description={`${review.employee.title} · manager ${review.manager.name}`}
+        kicker={cycle?.name}
+        title={`${employee?.fullName} · 1:1 review`}
+        description={`${employee?.title} · manager ${manager?.fullName}`}
       />
-      <div className="mb-6">
-        <Badge tone={review.status === "COMPLETED" ? "good" : "gold"}>
-          {reviewLabel(review.status)}
-        </Badge>
+      {error ? <Alert>{error}</Alert> : null}
+      <div className="mb-6 flex gap-2">
+        <Badge>self {appraisal.selfStatus.replaceAll("_", " ")}</Badge>
+        <Badge>manager {appraisal.managerStatus.replaceAll("_", " ")}</Badge>
       </div>
-
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
-          <h2 className="font-serif text-2xl">Self-review</h2>
+          <h2 className="font-serif text-2xl">Self-appraisal</h2>
           {canSelf ? (
             <form action={saveSelfReviewAction} className="mt-4 space-y-4">
-              <input type="hidden" name="reviewId" value={review.id} />
+              <input type="hidden" name="appraisalId" value={appraisal.id} />
+              {scores.map((score) => (
+                <input key={score.id} type="hidden" name="scoreId" value={score.id} />
+              ))}
               <label className="block text-sm">
-                Summary of impact
+                Impact this cycle
                 <textarea
                   name="selfSummary"
                   rows={6}
-                  defaultValue={review.selfSummary}
+                  defaultValue={appraisal.selfSummary}
                   className="mt-1.5 w-full rounded-xl border border-line bg-cream/40 px-3 py-2.5 outline-none ring-teal focus:ring-2"
                 />
               </label>
@@ -62,7 +68,7 @@ export default async function ReviewDetailPage({
                 Overall self rating
                 <select
                   name="selfRating"
-                  defaultValue={review.selfRating ?? ""}
+                  defaultValue={appraisal.selfRating ?? ""}
                   className="mt-1.5 w-full rounded-xl border border-line bg-cream/40 px-3 py-2.5 outline-none ring-teal focus:ring-2"
                 >
                   <option value="">Select</option>
@@ -74,12 +80,12 @@ export default async function ReviewDetailPage({
                 </select>
               </label>
               <div className="space-y-3">
-                {review.competencies.map((c) => (
-                  <label key={c.id} className="flex items-center justify-between gap-4 text-sm">
-                    <span>{c.name}</span>
+                {scores.map((score) => (
+                  <label key={score.id} className="flex items-center justify-between gap-4 text-sm">
+                    <span>{score.competency}</span>
                     <select
-                      name={`self-${c.id}`}
-                      defaultValue={c.selfScore ?? ""}
+                      name={`self-${score.id}`}
+                      defaultValue={score.selfScore ?? ""}
                       className="rounded-lg border border-line bg-cream/40 px-2 py-1.5"
                     >
                       <option value="">—</option>
@@ -112,44 +118,36 @@ export default async function ReviewDetailPage({
               </div>
             </form>
           ) : (
-            <div className="mt-4 space-y-3 text-sm">
+            <div className="mt-4 space-y-2 text-sm">
               <p className="whitespace-pre-wrap leading-relaxed">
-                {review.selfSummary || "Not started."}
+                {appraisal.selfSummary || "Not started."}
               </p>
-              <p className="text-ink-soft">Self rating: {ratingLabel(review.selfRating)}</p>
-              <ul className="space-y-1">
-                {review.competencies.map((c) => (
-                  <li key={c.id} className="flex justify-between">
-                    <span>{c.name}</span>
-                    <span>{c.selfScore ?? "—"}</span>
-                  </li>
-                ))}
-              </ul>
+              <p className="text-ink-soft">Self rating: {ratingLabel(appraisal.selfRating)}</p>
             </div>
           )}
         </Card>
-
         <Card>
-          <h2 className="font-serif text-2xl">Manager review</h2>
-          {canManager && review.status !== "NOT_STARTED" && review.status !== "SELF_REVIEW" ? (
+          <h2 className="font-serif text-2xl">Manager assessment</h2>
+          {canManager && appraisal.managerStatus !== "completed" ? (
             <form action={saveManagerReviewAction} className="mt-4 space-y-4">
-              <input type="hidden" name="reviewId" value={review.id} />
+              <input type="hidden" name="appraisalId" value={appraisal.id} />
+              {scores.map((score) => (
+                <input key={score.id} type="hidden" name="scoreId" value={score.id} />
+              ))}
               <label className="block text-sm">
                 Manager summary
                 <textarea
                   name="managerSummary"
                   rows={6}
-                  defaultValue={review.managerSummary}
-                  disabled={review.status === "COMPLETED" && user.role !== "ADMIN"}
-                  className="mt-1.5 w-full rounded-xl border border-line bg-cream/40 px-3 py-2.5 outline-none ring-teal focus:ring-2 disabled:opacity-70"
+                  defaultValue={appraisal.managerSummary}
+                  className="mt-1.5 w-full rounded-xl border border-line bg-cream/40 px-3 py-2.5 outline-none ring-teal focus:ring-2"
                 />
               </label>
               <label className="block text-sm">
                 Overall rating
                 <select
                   name="managerRating"
-                  defaultValue={review.managerRating ?? ""}
-                  disabled={review.status === "COMPLETED" && user.role !== "ADMIN"}
+                  defaultValue={appraisal.managerRating ?? ""}
                   className="mt-1.5 w-full rounded-xl border border-line bg-cream/40 px-3 py-2.5 outline-none ring-teal focus:ring-2"
                 >
                   <option value="">Select</option>
@@ -161,13 +159,12 @@ export default async function ReviewDetailPage({
                 </select>
               </label>
               <div className="space-y-3">
-                {review.competencies.map((c) => (
-                  <label key={c.id} className="flex items-center justify-between gap-4 text-sm">
-                    <span>{c.name}</span>
+                {scores.map((score) => (
+                  <label key={score.id} className="flex items-center justify-between gap-4 text-sm">
+                    <span>{score.competency}</span>
                     <select
-                      name={`mgr-${c.id}`}
-                      defaultValue={c.managerScore ?? ""}
-                      disabled={review.status === "COMPLETED" && user.role !== "ADMIN"}
+                      name={`mgr-${score.id}`}
+                      defaultValue={score.managerScore ?? ""}
                       className="rounded-lg border border-line bg-cream/40 px-2 py-1.5"
                     >
                       <option value="">—</option>
@@ -180,32 +177,27 @@ export default async function ReviewDetailPage({
                   </label>
                 ))}
               </div>
-              {review.status !== "COMPLETED" || user.role === "ADMIN" ? (
-                <div className="flex gap-2">
-                  <button
-                    type="submit"
-                    name="intent"
-                    value="save"
-                    className="rounded-xl border border-line px-4 py-2.5 text-sm"
-                  >
-                    Save draft
-                  </button>
-                  <button
-                    type="submit"
-                    name="intent"
-                    value="submit"
-                    className="rounded-xl bg-teal px-4 py-2.5 text-sm font-medium text-paper hover:bg-teal-deep"
-                  >
-                    Complete review
-                  </button>
-                </div>
-              ) : null}
+              <div className="flex gap-2">
+                <button
+                  type="submit"
+                  name="intent"
+                  value="save"
+                  className="rounded-xl border border-line px-4 py-2.5 text-sm"
+                >
+                  Save draft
+                </button>
+                <SubmitButton name="intent" value="submit" pendingLabel="Completing…">
+                  Complete review
+                </SubmitButton>
+              </div>
             </form>
           ) : (
             <p className="mt-4 text-sm text-ink-soft">
-              {isEmployee
-                ? "Your manager writes this after you submit."
-                : "Waiting for the self-review to be submitted."}
+              {appraisal.managerStatus === "completed"
+                ? appraisal.managerSummary
+                : isEmployee
+                  ? "Your manager writes this after you submit."
+                  : "Waiting for the self-appraisal to be submitted."}
             </p>
           )}
         </Card>

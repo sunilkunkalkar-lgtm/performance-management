@@ -1,179 +1,132 @@
 "use server";
 
+import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { GoalStatus, ReviewStatus } from "@prisma/client";
-import { login, logout, requireUser } from "@/lib/auth";
-import { prisma } from "@/lib/db";
+import { SESSION_COOKIE, signSession } from "@/lib/session";
+import { getDb } from "@/lib/pms/context";
+import {
+  createGoal,
+  decideGoal,
+  postKudo,
+  saveManagerAppraisal,
+  saveSelfAppraisal,
+  submitGoal,
+  updateGoalProgress,
+} from "@/lib/pms/queries";
+import type { GoalStatus } from "@/lib/pms/types";
 
-export async function loginAction(formData: FormData) {
-  const email = String(formData.get("email") ?? "");
-  const password = String(formData.get("password") ?? "");
-  const result = await login(email, password);
-  if ("error" in result && result.error) {
-    redirect(`/login?error=${encodeURIComponent(result.error)}`);
-  }
+export async function demoLoginAction(formData: FormData) {
+  const email = String(formData.get("email") ?? "")
+    .toLowerCase()
+    .trim();
+  const profile = getDb().profiles.find((p) => p.email === email);
+  if (!profile) redirect("/login?error=" + encodeURIComponent("Unknown demo account."));
+  const jar = await cookies();
+  jar.set(SESSION_COOKIE, signSession(profile.clerkId), {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 14,
+  });
   redirect("/dashboard");
 }
 
 export async function logoutAction() {
-  await logout();
+  const jar = await cookies();
+  jar.delete(SESSION_COOKIE);
   redirect("/login");
 }
 
 export async function createGoalAction(formData: FormData) {
-  const user = await requireUser();
-  const cycle = await prisma.cycle.findFirst({ where: { status: "ACTIVE" } });
-  if (!cycle) redirect("/goals");
-
-  const title = String(formData.get("title") ?? "").trim();
-  const description = String(formData.get("description") ?? "").trim();
-  const metric = String(formData.get("metric") ?? "").trim();
-  const unit = String(formData.get("unit") ?? "").trim();
-  const target = Number(formData.get("target") ?? 0);
-  const weight = Number(formData.get("weight") ?? 25);
-  const dueDate = String(formData.get("dueDate") ?? "");
-  const level = String(formData.get("level") ?? "INDIVIDUAL") as
-    | "COMPANY"
-    | "TEAM"
-    | "INDIVIDUAL";
-
-  if (!title || !description || !metric || !dueDate) {
-    redirect("/goals/new?error=Please+complete+the+required+fields.");
-  }
-
-  await prisma.goal.create({
-    data: {
-      ownerId: user.id,
-      cycleId: cycle.id,
-      title,
-      description,
-      metric,
-      unit: unit || "units",
-      target,
-      current: 0,
-      weight,
-      dueDate: new Date(dueDate),
-      level,
-      status: GoalStatus.ON_TRACK,
-    },
+  const result = await createGoal({
+    title: String(formData.get("title") ?? ""),
+    description: String(formData.get("description") ?? ""),
+    parentGoalId: String(formData.get("parentGoalId") ?? "") || null,
+    weight: Number(formData.get("weight") ?? 25),
+    dueDate: String(formData.get("dueDate") ?? ""),
+    krTitle: String(formData.get("krTitle") ?? ""),
+    krTarget: Number(formData.get("krTarget") ?? 1),
+    krUnit: String(formData.get("krUnit") ?? ""),
   });
-
+  if (result.error || !result.data) redirect("/goals/new?error=" + encodeURIComponent(result.error ?? "Could not save goal."));
   revalidatePath("/goals");
-  revalidatePath("/dashboard");
-  redirect("/goals");
+  redirect(`/goals/${result.data.id}`);
 }
 
-export async function updateGoalProgressAction(formData: FormData) {
-  const user = await requireUser();
-  const goalId = String(formData.get("goalId") ?? "");
-  const progress = Number(formData.get("progress") ?? 0);
-  const note = String(formData.get("note") ?? "").trim();
-  const status = String(formData.get("status") ?? "ON_TRACK") as GoalStatus;
-
-  const goal = await prisma.goal.findUnique({ where: { id: goalId } });
-  if (!goal) redirect("/goals");
-  if (goal.ownerId !== user.id && user.role === "EMPLOYEE") redirect("/goals");
-
-  await prisma.goal.update({
-    where: { id: goalId },
-    data: { current: progress, status },
-  });
-  if (note) {
-    await prisma.goalUpdate.create({
-      data: { goalId, authorId: user.id, note, progress },
-    });
-  }
-  revalidatePath(`/goals/${goalId}`);
-  revalidatePath("/goals");
-  revalidatePath("/dashboard");
-  redirect(`/goals/${goalId}`);
+export async function submitGoalAction(formData: FormData) {
+  const id = String(formData.get("goalId") ?? "");
+  const result = await submitGoal(id);
+  if (result.error) redirect(`/goals/${id}?error=${encodeURIComponent(result.error)}`);
+  revalidatePath(`/goals/${id}`);
+  redirect(`/goals/${id}`);
 }
 
-export async function sendFeedbackAction(formData: FormData) {
-  const user = await requireUser();
-  const toId = String(formData.get("toId") ?? "");
-  const message = String(formData.get("message") ?? "").trim();
-  if (!toId || !message) redirect("/feedback?error=Choose+a+colleague+and+write+feedback.");
-  if (toId === user.id) redirect("/feedback?error=Feedback+must+go+to+someone+else.");
+export async function decideGoalAction(formData: FormData) {
+  const id = String(formData.get("goalId") ?? "");
+  const decision = String(formData.get("decision") ?? "") as "approved" | "rejected";
+  const comment = String(formData.get("comment") ?? "");
+  const result = await decideGoal(id, decision, comment);
+  if (result.error) redirect(`/goals/${id}?error=${encodeURIComponent(result.error)}`);
+  revalidatePath(`/goals/${id}`);
+  redirect(`/goals/${id}`);
+}
 
-  await prisma.feedback.create({
-    data: { fromId: user.id, toId, message, shared: true },
+export async function updateProgressAction(formData: FormData) {
+  const id = String(formData.get("goalId") ?? "");
+  const result = await updateGoalProgress({
+    goalId: id,
+    status: String(formData.get("status") ?? "in_progress") as GoalStatus,
+    currentValue: Number(formData.get("currentValue") ?? 0),
   });
-  revalidatePath("/feedback");
-  revalidatePath("/dashboard");
-  redirect("/feedback");
+  if (result.error) redirect(`/goals/${id}?error=${encodeURIComponent(result.error)}`);
+  revalidatePath(`/goals/${id}`);
+  redirect(`/goals/${id}`);
 }
 
 export async function saveSelfReviewAction(formData: FormData) {
-  const user = await requireUser();
-  const reviewId = String(formData.get("reviewId") ?? "");
-  const review = await prisma.review.findUnique({
-    where: { id: reviewId },
-    include: { competencies: true },
+  const id = String(formData.get("appraisalId") ?? "");
+  const scoreIds = formData.getAll("scoreId").map(String);
+  const result = await saveSelfAppraisal({
+    appraisalId: id,
+    summary: String(formData.get("selfSummary") ?? ""),
+    rating: Number(formData.get("selfRating") ?? 0) || null,
+    scores: scoreIds.map((scoreId) => ({
+      id: scoreId,
+      value: Number(formData.get(`self-${scoreId}`) ?? 0) || null,
+    })),
+    submit: String(formData.get("intent") ?? "") === "submit",
   });
-  if (!review || review.employeeId !== user.id) redirect("/reviews");
-
-  const selfSummary = String(formData.get("selfSummary") ?? "").trim();
-  const selfRating = Number(formData.get("selfRating") ?? 0) || null;
-  const submit = String(formData.get("intent") ?? "") === "submit";
-
-  await prisma.review.update({
-    where: { id: reviewId },
-    data: {
-      selfSummary,
-      selfRating,
-      status: submit ? ReviewStatus.MANAGER_REVIEW : ReviewStatus.SELF_REVIEW,
-    },
-  });
-
-  for (const competency of review.competencies) {
-    const value = Number(formData.get(`self-${competency.id}`) ?? 0) || null;
-    await prisma.competencyRating.update({
-      where: { id: competency.id },
-      data: { selfScore: value },
-    });
-  }
-
-  revalidatePath(`/reviews/${reviewId}`);
-  revalidatePath("/reviews");
-  redirect(`/reviews/${reviewId}`);
+  if (result.error) redirect(`/reviews/${id}?error=${encodeURIComponent(result.error)}`);
+  revalidatePath(`/reviews/${id}`);
+  redirect(`/reviews/${id}`);
 }
 
 export async function saveManagerReviewAction(formData: FormData) {
-  const user = await requireUser();
-  const reviewId = String(formData.get("reviewId") ?? "");
-  const review = await prisma.review.findUnique({
-    where: { id: reviewId },
-    include: { competencies: true },
+  const id = String(formData.get("appraisalId") ?? "");
+  const scoreIds = formData.getAll("scoreId").map(String);
+  const result = await saveManagerAppraisal({
+    appraisalId: id,
+    summary: String(formData.get("managerSummary") ?? ""),
+    rating: Number(formData.get("managerRating") ?? 0) || null,
+    scores: scoreIds.map((scoreId) => ({
+      id: scoreId,
+      value: Number(formData.get(`mgr-${scoreId}`) ?? 0) || null,
+    })),
+    submit: String(formData.get("intent") ?? "") === "submit",
   });
-  if (!review) redirect("/reviews");
-  const canWrite =
-    review.managerId === user.id || user.role === "ADMIN";
-  if (!canWrite) redirect("/reviews");
+  if (result.error) redirect(`/reviews/${id}?error=${encodeURIComponent(result.error)}`);
+  revalidatePath(`/reviews/${id}`);
+  redirect(`/reviews/${id}`);
+}
 
-  const managerSummary = String(formData.get("managerSummary") ?? "").trim();
-  const managerRating = Number(formData.get("managerRating") ?? 0) || null;
-  const submit = String(formData.get("intent") ?? "") === "submit";
-
-  await prisma.review.update({
-    where: { id: reviewId },
-    data: {
-      managerSummary,
-      managerRating,
-      status: submit ? ReviewStatus.COMPLETED : ReviewStatus.MANAGER_REVIEW,
-    },
-  });
-
-  for (const competency of review.competencies) {
-    const value = Number(formData.get(`mgr-${competency.id}`) ?? 0) || null;
-    await prisma.competencyRating.update({
-      where: { id: competency.id },
-      data: { managerScore: value },
-    });
-  }
-
-  revalidatePath(`/reviews/${reviewId}`);
-  revalidatePath("/reviews");
-  redirect(`/reviews/${reviewId}`);
+export async function sendKudoAction(formData: FormData) {
+  const result = await postKudo(
+    String(formData.get("toId") ?? ""),
+    String(formData.get("badge") ?? ""),
+    String(formData.get("message") ?? ""),
+  );
+  if (result.error) redirect(`/kudos?error=${encodeURIComponent(result.error)}`);
+  revalidatePath("/kudos");
+  redirect("/kudos");
 }

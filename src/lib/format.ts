@@ -1,5 +1,3 @@
-import type { GoalStatus, ReviewStatus, Role } from "@prisma/client";
-
 export function initials(name: string) {
   return name
     .split(" ")
@@ -22,41 +20,12 @@ export function percent(current: number, target: number) {
   return Math.max(0, Math.min(100, Math.round((current / target) * 100)));
 }
 
-export function statusLabel(status: GoalStatus) {
-  switch (status) {
-    case "ON_TRACK":
-      return "On track";
-    case "AT_RISK":
-      return "At risk";
-    case "BEHIND":
-      return "Behind";
-    case "COMPLETED":
-      return "Completed";
-  }
+export function goalStatusLabel(status: string) {
+  return status.replaceAll("_", " ");
 }
 
-export function reviewLabel(status: ReviewStatus) {
-  switch (status) {
-    case "NOT_STARTED":
-      return "Not started";
-    case "SELF_REVIEW":
-      return "Self-review";
-    case "MANAGER_REVIEW":
-      return "Manager review";
-    case "COMPLETED":
-      return "Completed";
-  }
-}
-
-export function roleLabel(role: Role) {
-  switch (role) {
-    case "ADMIN":
-      return "People admin";
-    case "MANAGER":
-      return "Manager";
-    case "EMPLOYEE":
-      return "Employee";
-  }
+export function approvalLabel(status: string) {
+  return status.replaceAll("_", " ");
 }
 
 export function ratingLabel(score: number | null | undefined) {

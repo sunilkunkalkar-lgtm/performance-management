@@ -1,28 +1,28 @@
 import { createGoalAction } from "@/app/actions";
-import { requireUser } from "@/lib/auth";
-import { PageHeader } from "@/components/ui";
+import { Alert, PageHeader } from "@/components/ui";
+import { SubmitButton } from "@/components/submit-button";
+import { listGoalsForActor } from "@/lib/pms/queries";
 
 export default async function NewGoalPage({
   searchParams,
 }: {
   searchParams: Promise<{ error?: string }>;
 }) {
-  await requireUser();
   const { error } = await searchParams;
+  const { goals, people, actor } = await listGoalsForActor();
+  const parents = goals.filter((g) => g.approvalStatus === "approved");
 
   return (
     <div>
       <PageHeader
-        kicker="Objectives"
-        title="New goal"
-        description="Write an outcome with a metric, target, and due date for the active cycle."
+        kicker="Cascading OKRs"
+        title="New objective"
+        description="Draft an OKR. It stays private until you submit it for manager approval."
       />
-      {error ? (
-        <p className="mb-4 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p>
-      ) : null}
+      {error ? <Alert>{error}</Alert> : null}
       <form action={createGoalAction} className="max-w-2xl space-y-4">
         <label className="block text-sm">
-          Title
+          Objective
           <input
             name="title"
             required
@@ -30,7 +30,7 @@ export default async function NewGoalPage({
           />
         </label>
         <label className="block text-sm">
-          Description
+          Why it matters
           <textarea
             name="description"
             required
@@ -38,37 +38,23 @@ export default async function NewGoalPage({
             className="mt-1.5 w-full rounded-xl border border-line bg-paper px-3 py-2.5 outline-none ring-teal focus:ring-2"
           />
         </label>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <label className="block text-sm">
-            Metric
-            <input
-              name="metric"
-              required
-              placeholder="e.g. Services instrumented"
-              className="mt-1.5 w-full rounded-xl border border-line bg-paper px-3 py-2.5 outline-none ring-teal focus:ring-2"
-            />
-          </label>
-          <label className="block text-sm">
-            Unit
-            <input
-              name="unit"
-              placeholder="e.g. services"
-              className="mt-1.5 w-full rounded-xl border border-line bg-paper px-3 py-2.5 outline-none ring-teal focus:ring-2"
-            />
-          </label>
-        </div>
+        <label className="block text-sm">
+          Aligns to (optional cascade)
+          <select
+            name="parentGoalId"
+            className="mt-1.5 w-full rounded-xl border border-line bg-paper px-3 py-2.5 outline-none ring-teal focus:ring-2"
+          >
+            <option value="">None</option>
+            {parents
+              .filter((g) => g.employeeId !== actor.id)
+              .map((g) => (
+                <option key={g.id} value={g.id}>
+                  {people.find((p) => p.id === g.employeeId)?.fullName}: {g.title}
+                </option>
+              ))}
+          </select>
+        </label>
         <div className="grid gap-4 sm:grid-cols-3">
-          <label className="block text-sm">
-            Target
-            <input
-              name="target"
-              type="number"
-              step="any"
-              required
-              defaultValue={1}
-              className="mt-1.5 w-full rounded-xl border border-line bg-paper px-3 py-2.5 outline-none ring-teal focus:ring-2"
-            />
-          </label>
           <label className="block text-sm">
             Weight %
             <input
@@ -78,7 +64,7 @@ export default async function NewGoalPage({
               className="mt-1.5 w-full rounded-xl border border-line bg-paper px-3 py-2.5 outline-none ring-teal focus:ring-2"
             />
           </label>
-          <label className="block text-sm">
+          <label className="block text-sm sm:col-span-2">
             Due date
             <input
               name="dueDate"
@@ -88,23 +74,38 @@ export default async function NewGoalPage({
             />
           </label>
         </div>
-        <label className="block text-sm">
-          Level
-          <select
-            name="level"
-            className="mt-1.5 w-full rounded-xl border border-line bg-paper px-3 py-2.5 outline-none ring-teal focus:ring-2"
-          >
-            <option value="INDIVIDUAL">Individual</option>
-            <option value="TEAM">Team</option>
-            <option value="COMPANY">Company</option>
-          </select>
-        </label>
-        <button
-          type="submit"
-          className="rounded-xl bg-teal px-5 py-2.5 font-medium text-paper hover:bg-teal-deep"
-        >
-          Save goal
-        </button>
+        <div className="rounded-2xl border border-line p-4">
+          <p className="font-medium">Key result</p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            <label className="block text-sm sm:col-span-3">
+              Result
+              <input
+                name="krTitle"
+                placeholder="e.g. Services instrumented"
+                className="mt-1.5 w-full rounded-xl border border-line bg-paper px-3 py-2.5 outline-none ring-teal focus:ring-2"
+              />
+            </label>
+            <label className="block text-sm">
+              Target
+              <input
+                name="krTarget"
+                type="number"
+                step="any"
+                defaultValue={1}
+                className="mt-1.5 w-full rounded-xl border border-line bg-paper px-3 py-2.5 outline-none ring-teal focus:ring-2"
+              />
+            </label>
+            <label className="block text-sm sm:col-span-2">
+              Unit
+              <input
+                name="krUnit"
+                placeholder="services"
+                className="mt-1.5 w-full rounded-xl border border-line bg-paper px-3 py-2.5 outline-none ring-teal focus:ring-2"
+              />
+            </label>
+          </div>
+        </div>
+        <SubmitButton>Save draft</SubmitButton>
       </form>
     </div>
   );

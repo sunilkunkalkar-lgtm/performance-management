@@ -1,30 +1,42 @@
 import Link from "next/link";
+import {
+  Award,
+  ClipboardCheck,
+  LayoutDashboard,
+  LogOut,
+  Radar,
+  Sparkles,
+  Target,
+  Users,
+} from "lucide-react";
+import { ClerkSignOut } from "@/components/clerk-sign-out";
 import { logoutAction } from "@/app/actions";
+import { clerkEnabled } from "@/lib/pms/context";
+import type { Actor } from "@/lib/pms/types";
 import { initials } from "@/lib/format";
-import type { SessionUser } from "@/lib/auth";
 
 const NAV = [
-  { href: "/dashboard", label: "Overview" },
-  { href: "/goals", label: "Goals" },
-  { href: "/reviews", label: "Reviews" },
-  { href: "/feedback", label: "Feedback" },
-  { href: "/people", label: "People" },
-  { href: "/team", label: "Team" },
-  { href: "/cycles", label: "Cycles" },
-  { href: "/reports", label: "Reports" },
+  { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
+  { href: "/goals", label: "OKRs", icon: Target },
+  { href: "/reviews", label: "1:1 Reviews", icon: ClipboardCheck },
+  { href: "/radar", label: "Flight Risk", icon: Radar },
+  { href: "/kudos", label: "Kudos", icon: Award },
+  { href: "/skills", label: "Skills", icon: Sparkles },
+  { href: "/people", label: "People", icon: Users },
 ];
 
 export function AppShell({
   user,
   children,
 }: {
-  user: SessionUser;
+  user: Actor;
   children: React.ReactNode;
 }) {
+  const signedInWithClerk = clerkEnabled();
   return (
     <div className="min-h-full lg:grid lg:grid-cols-[240px_1fr]">
       <aside className="border-b border-line bg-ink text-paper lg:border-b-0 lg:border-r lg:min-h-screen">
-        <div className="flex items-center justify-between px-5 py-5 lg:block">
+        <div className="px-5 py-5">
           <Link href="/dashboard" className="block">
             <p className="font-serif text-2xl tracking-tight">Suii</p>
             <p className="mt-0.5 text-xs uppercase tracking-[0.18em] text-paper/60">
@@ -32,13 +44,14 @@ export function AppShell({
             </p>
           </Link>
         </div>
-        <nav className="flex gap-1 overflow-x-auto px-3 pb-3 lg:flex-col lg:px-3">
+        <nav className="flex gap-1 overflow-x-auto px-3 pb-3 lg:flex-col">
           {NAV.map((item) => (
             <Link
               key={item.href}
               href={item.href}
-              className="whitespace-nowrap rounded-lg px-3 py-2 text-sm text-paper/80 hover:bg-white/10 hover:text-paper"
+              className="flex items-center gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-sm text-paper/80 hover:bg-white/10 hover:text-paper"
             >
+              <item.icon className="h-4 w-4" />
               {item.label}
             </Link>
           ))}
@@ -46,36 +59,41 @@ export function AppShell({
         <div className="hidden px-5 py-5 lg:mt-8 lg:block">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gold text-sm font-medium text-ink">
-              {initials(user.name)}
+              {initials(user.fullName)}
             </div>
             <div>
-              <p className="text-sm font-medium">{user.name}</p>
+              <p className="text-sm font-medium">{user.fullName}</p>
               <p className="text-xs text-paper/60">{user.title}</p>
             </div>
           </div>
-          <form action={logoutAction} className="mt-4">
-            <button
-              type="submit"
-              className="text-xs uppercase tracking-[0.16em] text-paper/55 hover:text-paper"
-            >
-              Sign out
-            </button>
-          </form>
+          <div className="mt-4">
+            {signedInWithClerk ? (
+              <ClerkSignOut />
+            ) : (
+              <form action={logoutAction}>
+                <button
+                  type="submit"
+                  className="inline-flex items-center gap-1 text-xs uppercase tracking-[0.16em] text-paper/55 hover:text-paper"
+                >
+                  <LogOut className="h-3 w-3" /> Sign out
+                </button>
+              </form>
+            )}
+          </div>
         </div>
       </aside>
       <div className="min-w-0">
         <header className="flex items-center justify-between border-b border-line bg-paper/80 px-5 py-3 lg:hidden">
-          <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gold text-xs font-medium">
-              {initials(user.name)}
-            </div>
-            <span className="text-sm">{user.name}</span>
-          </div>
-          <form action={logoutAction}>
-            <button type="submit" className="text-xs uppercase tracking-wider text-ink-soft">
-              Sign out
-            </button>
-          </form>
+          <span className="text-sm">{user.fullName}</span>
+          {signedInWithClerk ? (
+            <ClerkSignOut compact />
+          ) : (
+            <form action={logoutAction}>
+              <button type="submit" className="text-xs uppercase tracking-wider text-ink-soft">
+                Sign out
+              </button>
+            </form>
+          )}
         </header>
         <main className="mx-auto w-full max-w-6xl px-5 py-8 lg:px-10 lg:py-10">{children}</main>
       </div>
@@ -116,7 +134,9 @@ export function Card({
   className?: string;
 }) {
   return (
-    <div className={`rounded-2xl border border-line bg-paper p-5 shadow-[0_1px_0_rgba(16,36,43,0.04)] ${className}`}>
+    <div
+      className={`rounded-2xl border border-line bg-paper p-5 shadow-[0_1px_0_rgba(16,36,43,0.04)] ${className}`}
+    >
       {children}
     </div>
   );
@@ -154,13 +174,25 @@ export function Progress({ value }: { value: number }) {
   );
 }
 
-export function Empty({
-  title,
-  body,
+export function Alert({
+  children,
+  tone = "error",
 }: {
-  title: string;
-  body: string;
+  children: React.ReactNode;
+  tone?: "error" | "info";
 }) {
+  return (
+    <p
+      className={`mb-4 rounded-xl px-3 py-2 text-sm ${
+        tone === "error" ? "bg-rose-50 text-rose-800" : "bg-teal/10 text-teal-deep"
+      }`}
+    >
+      {children}
+    </p>
+  );
+}
+
+export function Empty({ title, body }: { title: string; body: string }) {
   return (
     <Card>
       <p className="font-medium">{title}</p>

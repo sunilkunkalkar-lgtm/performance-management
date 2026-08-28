@@ -1,80 +1,149 @@
 import { notFound } from "next/navigation";
-import { GoalStatus } from "@prisma/client";
-import { updateGoalProgressAction } from "@/app/actions";
-import { requireUser } from "@/lib/auth";
-import { prisma } from "@/lib/db";
-import { Badge, Card, PageHeader, Progress } from "@/components/ui";
-import { formatDate, percent, statusLabel } from "@/lib/format";
+import {
+  decideGoalAction,
+  submitGoalAction,
+  updateProgressAction,
+} from "@/app/actions";
+import { Alert, Badge, Card, PageHeader, Progress } from "@/components/ui";
+import { SubmitButton } from "@/components/submit-button";
+import { getGoal } from "@/lib/pms/queries";
+import { approvalLabel, formatDate, goalStatusLabel, percent } from "@/lib/format";
 
 export default async function GoalDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ error?: string }>;
 }) {
-  const user = await requireUser();
   const { id } = await params;
-  const goal = await prisma.goal.findUnique({
-    where: { id },
-    include: {
-      owner: true,
-      cycle: true,
-      updates: { include: { author: true }, orderBy: { createdAt: "desc" } },
-    },
-  });
-  if (!goal) notFound();
+  const { error } = await searchParams;
+  const { actor, goal, keyResults, people, parent, error: loadError } = await getGoal(id);
+  if (loadError === "Goal not found.") notFound();
+  if (!goal) {
+    return (
+      <div>
+        <PageHeader title="Goal" />
+        <Alert>{loadError}</Alert>
+      </div>
+    );
+  }
 
-  const canEdit = goal.ownerId === user.id || user.role !== "EMPLOYEE";
-  const p = percent(goal.current, goal.target);
+  const owner = people.find((p) => p.id === goal.employeeId);
+  const kr = keyResults[0];
+  const p = kr ? percent(kr.currentValue, kr.target) : 0;
+  const isOwner = actor.id === goal.employeeId;
+  const isManager = actor.id === owner?.managerId || actor.role === "admin";
 
   return (
     <div>
-      <PageHeader
-        kicker={goal.cycle.name}
-        title={goal.title}
-        description={goal.description}
-      />
+      <PageHeader kicker={owner?.fullName} title={goal.title} description={goal.description} />
+      {error ? <Alert>{error}</Alert> : null}
+      <div className="mb-6 flex flex-wrap gap-2">
+        <Badge>{goalStatusLabel(goal.status)}</Badge>
+        <Badge
+          tone={
+            goal.approvalStatus === "approved"
+              ? "good"
+              : goal.approvalStatus === "rejected"
+                ? "behind"
+                : "gold"
+          }
+        >
+          {approvalLabel(goal.approvalStatus)}
+        </Badge>
+        {parent ? <Badge tone="neutral">Aligns to {parent.title}</Badge> : null}
+      </div>
+
       <div className="grid gap-6 lg:grid-cols-5">
         <div className="space-y-4 lg:col-span-3">
           <Card>
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-ink-soft">
-                {goal.owner.name} · {goal.level.toLowerCase()} · due {formatDate(goal.dueDate)}
+            {kr ? (
+              <>
+                <p className="text-sm text-ink-soft">{kr.title}</p>
+                <div className="mt-3">
+                  <div className="mb-2 flex justify-between text-sm">
+                    <span>
+                      {kr.currentValue} / {kr.target} {kr.unit}
+                    </span>
+                    <span>{p}%</span>
+                  </div>
+                  <Progress value={p} />
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-ink-soft">No key result yet.</p>
+            )}
+            <p className="mt-4 text-sm text-ink-soft">
+              Due {goal.dueDate ? formatDate(goal.dueDate) : "—"} · {goal.weight}% weight
+            </p>
+            {goal.managerComment ? (
+              <p className="mt-4 rounded-xl bg-cream px-3 py-2 text-sm">
+                Manager: {goal.managerComment}
               </p>
-              <Badge
-                tone={
-                  goal.status === "AT_RISK"
-                    ? "risk"
-                    : goal.status === "BEHIND"
-                      ? "behind"
-                      : "good"
-                }
-              >
-                {statusLabel(goal.status)}
-              </Badge>
-            </div>
-            <div className="mt-6">
-              <div className="mb-2 flex justify-between text-sm">
-                <span>
-                  {goal.current} / {goal.target} {goal.unit}
-                </span>
-                <span>{p}%</span>
-              </div>
-              <Progress value={p} />
-            </div>
+            ) : null}
           </Card>
 
-          {canEdit ? (
+          {isOwner && (goal.approvalStatus === "draft" || goal.approvalStatus === "rejected") ? (
             <Card>
-              <h2 className="font-serif text-xl">Update progress</h2>
-              <form action={updateGoalProgressAction} className="mt-4 space-y-3">
+              <h2 className="font-serif text-xl">Submit for approval</h2>
+              <p className="mt-2 text-sm text-ink-soft">
+                Your manager will see this OKR once you submit it.
+              </p>
+              <form action={submitGoalAction} className="mt-4">
+                <input type="hidden" name="goalId" value={goal.id} />
+                <SubmitButton>Submit to manager</SubmitButton>
+              </form>
+            </Card>
+          ) : null}
+
+          {isManager && !isOwner && goal.approvalStatus === "pending_approval" ? (
+            <Card>
+              <h2 className="font-serif text-xl">Approval</h2>
+              <form action={decideGoalAction} className="mt-4 space-y-3">
                 <input type="hidden" name="goalId" value={goal.id} />
                 <label className="block text-sm">
-                  Current value
+                  Comment
+                  <textarea
+                    name="comment"
+                    rows={3}
+                    className="mt-1.5 w-full rounded-xl border border-line bg-cream/40 px-3 py-2.5 outline-none ring-teal focus:ring-2"
+                  />
+                </label>
+                <div className="flex gap-2">
+                  <button
+                    type="submit"
+                    name="decision"
+                    value="approved"
+                    className="rounded-xl bg-teal px-4 py-2.5 text-sm font-medium text-paper hover:bg-teal-deep"
+                  >
+                    Approve
+                  </button>
+                  <button
+                    type="submit"
+                    name="decision"
+                    value="rejected"
+                    className="rounded-xl border border-line px-4 py-2.5 text-sm"
+                  >
+                    Reject
+                  </button>
+                </div>
+              </form>
+            </Card>
+          ) : null}
+
+          {goal.approvalStatus === "approved" && (isOwner || isManager) ? (
+            <Card>
+              <h2 className="font-serif text-xl">Update progress</h2>
+              <form action={updateProgressAction} className="mt-4 space-y-3">
+                <input type="hidden" name="goalId" value={goal.id} />
+                <label className="block text-sm">
+                  Current key result value
                   <input
-                    name="progress"
+                    name="currentValue"
                     type="number"
                     step="any"
-                    defaultValue={goal.current}
+                    defaultValue={kr?.currentValue ?? 0}
                     className="mt-1.5 w-full rounded-xl border border-line bg-cream/40 px-3 py-2.5 outline-none ring-teal focus:ring-2"
                   />
                 </label>
@@ -85,69 +154,15 @@ export default async function GoalDetailPage({
                     defaultValue={goal.status}
                     className="mt-1.5 w-full rounded-xl border border-line bg-cream/40 px-3 py-2.5 outline-none ring-teal focus:ring-2"
                   >
-                    {Object.values(GoalStatus).map((status) => (
-                      <option key={status} value={status}>
-                        {statusLabel(status)}
-                      </option>
-                    ))}
+                    <option value="not_started">Not started</option>
+                    <option value="in_progress">In progress</option>
+                    <option value="achieved">Achieved</option>
                   </select>
                 </label>
-                <label className="block text-sm">
-                  Note
-                  <textarea
-                    name="note"
-                    rows={3}
-                    placeholder="What moved, and what is next?"
-                    className="mt-1.5 w-full rounded-xl border border-line bg-cream/40 px-3 py-2.5 outline-none ring-teal focus:ring-2"
-                  />
-                </label>
-                <button
-                  type="submit"
-                  className="rounded-xl bg-teal px-4 py-2.5 text-sm font-medium text-paper hover:bg-teal-deep"
-                >
-                  Save update
-                </button>
+                <SubmitButton>Save progress</SubmitButton>
               </form>
             </Card>
           ) : null}
-
-          <Card>
-            <h2 className="font-serif text-xl">History</h2>
-            {goal.updates.length === 0 ? (
-              <p className="mt-3 text-sm text-ink-soft">No updates yet.</p>
-            ) : (
-              <ul className="mt-4 space-y-4">
-                {goal.updates.map((update) => (
-                  <li key={update.id} className="border-t border-line pt-4 first:border-t-0 first:pt-0">
-                    <p className="text-sm">{update.note}</p>
-                    <p className="mt-1 text-xs text-ink-soft">
-                      {update.author.name} · {formatDate(update.createdAt)} · progress{" "}
-                      {update.progress}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
-        </div>
-        <div className="lg:col-span-2">
-          <Card>
-            <h2 className="font-serif text-xl">Details</h2>
-            <dl className="mt-4 space-y-3 text-sm">
-              <div className="flex justify-between">
-                <dt className="text-ink-soft">Metric</dt>
-                <dd>{goal.metric}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-ink-soft">Weight</dt>
-                <dd>{goal.weight}%</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-ink-soft">Owner</dt>
-                <dd>{goal.owner.title}</dd>
-              </div>
-            </dl>
-          </Card>
         </div>
       </div>
     </div>
