@@ -34,6 +34,7 @@ async function clerkProxy(request: NextRequest, event: unknown) {
     "/login(.*)",
     "/sign-in(.*)",
     "/sign-up(.*)",
+    "/access-denied(.*)",
     "/api/webhooks(.*)",
   ]);
   const handler = clerkMiddleware(async (auth, req) => {

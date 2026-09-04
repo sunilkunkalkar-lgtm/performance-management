@@ -5,29 +5,15 @@ import { redirect } from "next/navigation";
 import { actorFromClerkId, seedDb, type Db } from "./seed";
 import type { Actor } from "./types";
 import { SESSION_COOKIE, readSessionUserId } from "@/lib/session";
+import { clerkEnabled, usesSupabase } from "./config";
+import { getActorFromStore, linkClerkProfile } from "./repository";
+
+export { authMode, clerkEnabled, supabaseEnabled, usesSupabase } from "./config";
 
 const globalForDb = globalThis as unknown as { suiiDb?: Db };
 
 function dataFile() {
   return path.join(process.cwd(), ".data", "pms-demo.json");
-}
-
-export function authMode(): "demo" | "clerk" {
-  return process.env.AUTH_MODE === "clerk" ? "clerk" : "demo";
-}
-
-export function clerkEnabled() {
-  return (
-    authMode() === "clerk" && Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY)
-  );
-}
-
-export function supabaseEnabled() {
-  return Boolean(
-    process.env.NEXT_PUBLIC_SUPABASE_URL &&
-      (process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
-  );
 }
 
 export function persistDb() {
@@ -61,13 +47,26 @@ export async function getActor(): Promise<Actor | null> {
     const { auth } = await import("@clerk/nextjs/server");
     const { userId } = await auth();
     if (!userId) return null;
-    const db = getDb();
-    const existing = actorFromClerkId(db, userId);
+
+    const existing = await getActorFromStore(userId);
     if (existing) return existing;
+
     const { currentUser } = await import("@clerk/nextjs/server");
     const user = await currentUser();
     const email = user?.primaryEmailAddress?.emailAddress?.toLowerCase();
     if (!email) return null;
+
+    if (usesSupabase()) {
+      return linkClerkProfile({
+        clerkId: userId,
+        email,
+        fullName:
+          [user?.firstName, user?.lastName].filter(Boolean).join(" ") || email,
+        avatarUrl: user?.imageUrl ?? null,
+      });
+    }
+
+    const db = getDb();
     const byEmail = db.profiles.find((p) => p.email === email);
     if (byEmail) {
       byEmail.clerkId = userId;
@@ -85,6 +84,9 @@ export async function getActor(): Promise<Actor | null> {
 
 export async function requireActor() {
   const actor = await getActor();
-  if (!actor) redirect("/login");
+  if (!actor) {
+    if (clerkEnabled()) redirect("/access-denied");
+    redirect("/login");
+  }
   return actor;
 }
