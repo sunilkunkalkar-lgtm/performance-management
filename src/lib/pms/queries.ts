@@ -1,300 +1,305 @@
 import { getDb, persistDb, requireActor } from "./context";
-import { canAccess, fail, flightRisk, ok, peopleOf } from "./seed";
-import type { ApprovalStatus, GoalStatus, Result } from "./types";
+import {
+  canManageTask,
+  canUpdateTaskAsEmployee,
+  canViewTask,
+  listEmployeesForActor,
+  tasksForActor,
+} from "./rbac";
+import { fail, ok, peopleOf, type Db } from "./seed";
+import type {
+  AppRole,
+  ExecutiveSummary,
+  ProductivityScorecard,
+  Result,
+  TaskPriority,
+  TaskStatus,
+} from "./types";
 
 function id() {
   return crypto.randomUUID();
 }
 
-export async function listPeople() {
-  const actor = await requireActor();
-  return { actor, people: peopleOf(getDb()) };
+function now() {
+  return new Date().toISOString();
 }
 
-export async function listCycles() {
-  const actor = await requireActor();
-  return { actor, cycles: getDb().cycles };
-}
-
-export async function activeCycle() {
-  return getDb().cycles.find((c) => c.status === "active") ?? null;
-}
-
-export async function listGoalsForActor() {
-  const actor = await requireActor();
-  const db = getDb();
-  const manager = db.employees.find((e) => e.id === actor.managerId);
-  const skip = manager?.managerId;
-  const goals = db.goals.filter((g) => {
-    if (canAccess(actor, g.employeeId, db)) return true;
-    if (g.approvalStatus !== "approved") return false;
-    return g.employeeId === actor.managerId || (skip != null && g.employeeId === skip);
-  });
-  return { actor, goals, keyResults: db.keyResults, people: peopleOf(db), cycles: db.cycles };
-}
-
-export async function getGoal(goalId: string) {
-  const actor = await requireActor();
-  const db = getDb();
-  const goal = db.goals.find((g) => g.id === goalId);
-  if (!goal) return { actor, goal: null, error: "Goal not found." };
-  const manager = db.employees.find((e) => e.id === actor.managerId);
-  const skip = manager?.managerId;
-  const canRead =
-    canAccess(actor, goal.employeeId, db) ||
-    (goal.approvalStatus === "approved" &&
-      (goal.employeeId === actor.managerId || (skip != null && goal.employeeId === skip)));
-  if (!canRead) {
-    return { actor, goal: null, error: "You do not have access to this goal." };
-  }
+export function executiveSummary(tasks: { status: TaskStatus; isBlocked: boolean }[]): ExecutiveSummary {
+  const active = tasks.filter((t) => t.status !== "completed");
+  const completed = tasks.filter((t) => t.status === "completed").length;
+  const total = tasks.length;
   return {
-    actor,
-    goal,
-    keyResults: db.keyResults.filter((k) => k.goalId === goal.id),
-    people: peopleOf(db),
-    parent: goal.parentGoalId ? db.goals.find((g) => g.id === goal.parentGoalId) ?? null : null,
-    error: null,
+    totalActive: active.length,
+    completionRate: total ? Math.round((completed / total) * 100) : 0,
+    activeBlockers: tasks.filter((t) => t.isBlocked && t.status !== "completed").length,
   };
 }
 
-export async function createGoal(input: {
+export function productivityScorecards(db: Db): ProductivityScorecard[] {
+  const employees = db.employees.filter((e) => {
+    const profile = db.profiles.find((p) => p.id === e.profileId);
+    return profile?.role === "employee";
+  });
+
+  return employees.map((employee) => {
+    const profile = db.profiles.find((p) => p.id === employee.profileId)!;
+    const tasks = db.tasks.filter((t) => t.assigneeId === employee.id);
+    const completed = tasks.filter((t) => t.status === "completed").length;
+    const inProgress = tasks.filter((t) => t.status === "in_progress").length;
+    const blocked = tasks.filter((t) => t.isBlocked && t.status !== "completed").length;
+    return {
+      employeeId: employee.id,
+      fullName: profile.fullName,
+      department: employee.department,
+      title: employee.title,
+      totalTasks: tasks.length,
+      completedTasks: completed,
+      inProgressTasks: inProgress,
+      blockedTasks: blocked,
+      completionRate: tasks.length ? Math.round((completed / tasks.length) * 100) : 0,
+    };
+  });
+}
+
+export async function requireRole(allowed: AppRole | AppRole[]) {
+  const actor = await requireActor();
+  const roles = Array.isArray(allowed) ? allowed : [allowed];
+  if (!roles.includes(actor.role)) {
+    return { actor, allowed: false as const };
+  }
+  return { actor, allowed: true as const };
+}
+
+export async function bossDashboard() {
+  const gate = await requireRole("boss");
+  if (!gate.allowed) return { ...gate, tasks: [], people: [], comments: [], summary: null };
+  const db = getDb();
+  const tasks = tasksForActor(gate.actor, db);
+  const people = peopleOf(db);
+  return {
+    actor: gate.actor,
+    allowed: true as const,
+    tasks,
+    people,
+    comments: db.taskComments,
+    summary: executiveSummary(tasks),
+  };
+}
+
+export async function hrDashboard() {
+  const gate = await requireRole("hr");
+  if (!gate.allowed) return { ...gate, tasks: [], employees: [], people: [], comments: [], summary: null, scorecards: [] };
+  const db = getDb();
+  const tasks = tasksForActor(gate.actor, db);
+  const employees = listEmployeesForActor(gate.actor, db);
+  return {
+    actor: gate.actor,
+    allowed: true as const,
+    tasks,
+    employees,
+    people: peopleOf(db),
+    comments: db.taskComments,
+    summary: executiveSummary(tasks),
+    scorecards: productivityScorecards(db),
+  };
+}
+
+export async function employeeDashboard() {
+  const gate = await requireRole("employee");
+  if (!gate.allowed) return { ...gate, tasks: [], comments: [] };
+  const db = getDb();
+  const tasks = tasksForActor(gate.actor, db);
+  return {
+    actor: gate.actor,
+    allowed: true as const,
+    tasks,
+    comments: db.taskComments.filter((c) => tasks.some((t) => t.id === c.taskId)),
+  };
+}
+
+export async function createTask(input: {
   title: string;
   description: string;
-  parentGoalId: string | null;
-  weight: number;
+  assigneeId: string;
   dueDate: string;
-  krTitle: string;
-  krTarget: number;
-  krUnit: string;
+  priority: TaskPriority;
 }): Promise<Result<{ id: string }>> {
-  const actor = await requireActor();
-  const cycle = await activeCycle();
-  if (!cycle) return fail("No active review cycle.");
-  if (!input.title.trim() || !input.description.trim()) return fail("Title and description are required.");
+  const gate = await requireRole("boss");
+  if (!gate.allowed) return fail("Only bosses can create tasks.");
+  if (!input.title.trim()) return fail("Title is required.");
+  if (!input.assigneeId) return fail("Assign an employee.");
   const db = getDb();
-  const goalId = id();
-  const now = new Date().toISOString();
-  db.goals.push({
-    id: goalId,
-    employeeId: actor.id,
-    cycleId: cycle.id,
-    parentGoalId: input.parentGoalId,
+  const assignee = db.employees.find((e) => e.id === input.assigneeId);
+  const profile = assignee ? db.profiles.find((p) => p.id === assignee.profileId) : null;
+  if (!assignee || profile?.role !== "employee") return fail("Assign tasks to employees only.");
+  const taskId = id();
+  const timestamp = now();
+  db.tasks.push({
+    id: taskId,
     title: input.title.trim(),
     description: input.description.trim(),
+    assigneeId: input.assigneeId,
+    createdById: gate.actor.id,
     status: "not_started",
-    approvalStatus: "draft",
-    managerComment: "",
-    weight: input.weight || 25,
+    priority: input.priority,
     dueDate: input.dueDate || null,
-    submittedAt: null,
-    reviewedAt: null,
-    createdAt: now,
+    isBlocked: false,
+    completedAt: null,
+    createdAt: timestamp,
+    updatedAt: timestamp,
   });
-  if (input.krTitle.trim()) {
-    db.keyResults.push({
-      id: id(),
-      goalId,
-      title: input.krTitle.trim(),
-      metric: input.krTitle.trim(),
-      target: input.krTarget || 1,
-      currentValue: 0,
-      unit: input.krUnit.trim() || "units",
-      sortOrder: 1,
-    });
-  }
   persistDb();
-  return ok({ id: goalId });
+  return ok({ id: taskId });
 }
 
-export async function submitGoal(goalId: string): Promise<Result<true>> {
+export async function updateTaskStatus(taskId: string, status: TaskStatus): Promise<Result<true>> {
   const actor = await requireActor();
   const db = getDb();
-  const goal = db.goals.find((g) => g.id === goalId);
-  if (!goal) return fail("Goal not found.");
-  if (goal.employeeId !== actor.id && actor.role !== "admin") return fail("Only the owner can submit this goal.");
-  goal.approvalStatus = "pending_approval";
-  goal.submittedAt = new Date().toISOString();
-  persistDb();
-  return ok(true);
-}
-
-export async function decideGoal(
-  goalId: string,
-  decision: Extract<ApprovalStatus, "approved" | "rejected">,
-  comment: string,
-): Promise<Result<true>> {
-  const actor = await requireActor();
-  const db = getDb();
-  const goal = db.goals.find((g) => g.id === goalId);
-  if (!goal) return fail("Goal not found.");
-  if (!canAccess(actor, goal.employeeId, db) || goal.employeeId === actor.id) {
-    return fail("Only the manager can approve this goal.");
-  }
-  if (goal.approvalStatus !== "pending_approval" && actor.role !== "admin") {
-    return fail("This goal is not waiting for approval.");
-  }
-  goal.approvalStatus = decision;
-  goal.managerComment = comment.trim();
-  goal.reviewedAt = new Date().toISOString();
-  persistDb();
-  return ok(true);
-}
-
-export async function updateGoalProgress(input: {
-  goalId: string;
-  status: GoalStatus;
-  currentValue: number;
-}): Promise<Result<true>> {
-  const actor = await requireActor();
-  const db = getDb();
-  const goal = db.goals.find((g) => g.id === input.goalId);
-  if (!goal) return fail("Goal not found.");
-  if (!canAccess(actor, goal.employeeId, db)) return fail("You cannot update this goal.");
-  if (goal.approvalStatus !== "approved" && goal.employeeId === actor.id) {
-    return fail("Goal must be approved before tracking progress.");
-  }
-  goal.status = input.status;
-  const kr = db.keyResults.find((k) => k.goalId === goal.id);
-  if (kr) kr.currentValue = input.currentValue;
-  persistDb();
-  return ok(true);
-}
-
-export async function listAppraisals() {
-  const actor = await requireActor();
-  const db = getDb();
-  const appraisals = db.appraisals.filter((a) => canAccess(actor, a.employeeId, db));
-  return { actor, appraisals, people: peopleOf(db), cycles: db.cycles };
-}
-
-export async function getAppraisal(appraisalId: string) {
-  const actor = await requireActor();
-  const db = getDb();
-  const appraisal = db.appraisals.find((a) => a.id === appraisalId);
-  if (!appraisal || !canAccess(actor, appraisal.employeeId, db)) {
-    return { actor, appraisal: null, error: "Review not found." };
-  }
-  return {
-    actor,
-    appraisal,
-    scores: db.appraisalScores.filter((s) => s.appraisalId === appraisal.id),
-    people: peopleOf(db),
-    cycle: db.cycles.find((c) => c.id === appraisal.cycleId) ?? null,
-    error: null,
-  };
-}
-
-export async function saveSelfAppraisal(input: {
-  appraisalId: string;
-  summary: string;
-  rating: number | null;
-  scores: { id: string; value: number | null }[];
-  submit: boolean;
-}): Promise<Result<true>> {
-  const actor = await requireActor();
-  const db = getDb();
-  const appraisal = db.appraisals.find((a) => a.id === input.appraisalId);
-  if (!appraisal) return fail("Review not found.");
-  if (appraisal.employeeId !== actor.id) return fail("Only the employee can complete the self-appraisal.");
-  appraisal.selfSummary = input.summary;
-  appraisal.selfRating = input.rating;
-  appraisal.selfStatus = input.submit ? "submitted" : "in_progress";
-  if (input.submit) appraisal.selfSubmittedAt = new Date().toISOString();
-  for (const score of input.scores) {
-    const row = db.appraisalScores.find((s) => s.id === score.id);
-    if (row) row.selfScore = score.value;
+  const task = db.tasks.find((t) => t.id === taskId);
+  if (!task) return fail("Task not found.");
+  if (!canUpdateTaskAsEmployee(actor, task)) return fail("You can only update your own tasks.");
+  const order: TaskStatus[] = ["not_started", "in_progress", "completed"];
+  const current = order.indexOf(task.status);
+  const next = order.indexOf(status);
+  if (next < current) return fail("Status can only move forward.");
+  if (next > current + 1) return fail("Advance one status at a time.");
+  task.status = status;
+  task.updatedAt = now();
+  if (status === "completed") {
+    task.completedAt = now();
+    task.isBlocked = false;
   }
   persistDb();
   return ok(true);
 }
 
-export async function saveManagerAppraisal(input: {
-  appraisalId: string;
-  summary: string;
-  rating: number | null;
-  scores: { id: string; value: number | null }[];
-  submit: boolean;
-}): Promise<Result<true>> {
+export async function toggleTaskBlocker(taskId: string, blocked: boolean): Promise<Result<true>> {
   const actor = await requireActor();
   const db = getDb();
-  const appraisal = db.appraisals.find((a) => a.id === input.appraisalId);
-  if (!appraisal) return fail("Review not found.");
-  if (appraisal.managerId !== actor.id && actor.role !== "admin") {
-    return fail("Only the manager can complete this assessment.");
-  }
-  if (appraisal.selfStatus !== "submitted" && appraisal.selfStatus !== "completed") {
-    return fail("Self-appraisal must be submitted first.");
-  }
-  appraisal.managerSummary = input.summary;
-  appraisal.managerRating = input.rating;
-  appraisal.managerStatus = input.submit ? "completed" : "in_progress";
-  if (input.submit) {
-    appraisal.managerSubmittedAt = new Date().toISOString();
-    appraisal.selfStatus = "completed";
-  }
-  for (const score of input.scores) {
-    const row = db.appraisalScores.find((s) => s.id === score.id);
-    if (row) row.managerScore = score.value;
-  }
+  const task = db.tasks.find((t) => t.id === taskId);
+  if (!task) return fail("Task not found.");
+  if (!canUpdateTaskAsEmployee(actor, task)) return fail("You can only flag blockers on your own tasks.");
+  if (task.status === "completed") return fail("Completed tasks cannot be flagged.");
+  task.isBlocked = blocked;
+  task.updatedAt = now();
   persistDb();
   return ok(true);
 }
 
-export async function listKudos() {
+export async function addTaskComment(taskId: string, body: string): Promise<Result<true>> {
   const actor = await requireActor();
   const db = getDb();
-  return {
-    actor,
-    kudos: [...db.kudos].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-    people: peopleOf(db),
-  };
-}
-
-export async function postKudo(toEmployeeId: string, badge: string, message: string): Promise<Result<true>> {
-  const actor = await requireActor();
-  if (!toEmployeeId || !message.trim() || !badge.trim()) return fail("Choose a colleague, badge, and message.");
-  if (toEmployeeId === actor.id) return fail("Kudos must go to a colleague.");
-  getDb().kudos.unshift({
+  const task = db.tasks.find((t) => t.id === taskId);
+  if (!task) return fail("Task not found.");
+  if (!canViewTask(actor, task, db)) return fail("You cannot comment on this task.");
+  if (!body.trim()) return fail("Comment cannot be empty.");
+  db.taskComments.push({
     id: id(),
-    fromEmployeeId: actor.id,
-    toEmployeeId,
-    badge: badge.trim(),
-    message: message.trim(),
-    createdAt: new Date().toISOString(),
+    taskId,
+    authorId: actor.id,
+    body: body.trim(),
+    createdAt: now(),
   });
+  task.updatedAt = now();
   persistDb();
   return ok(true);
 }
 
-export async function radar() {
-  const actor = await requireActor();
-  if (actor.role === "employee") {
-    return { actor, rows: [], error: "Flight Risk Radar is available to managers and people partners." };
+export async function createEmployee(input: {
+  fullName: string;
+  email: string;
+  password: string;
+  title: string;
+  department: string;
+  jobRole: string;
+}): Promise<Result<{ id: string }>> {
+  const gate = await requireRole("hr");
+  if (!gate.allowed) return fail("Only HR can add employees.");
+  const db = getDb();
+  const email = input.email.toLowerCase().trim();
+  if (!email || !input.password || !input.fullName.trim()) return fail("Name, email, and password are required.");
+  if (db.profiles.some((p) => p.email === email)) return fail("Email already exists.");
+  const profileId = id();
+  const employeeId = id();
+  const clerkId = `user_${employeeId.slice(0, 8)}`;
+  const { hashPassword } = await import("@/lib/auth/password");
+  db.profiles.push({
+    id: profileId,
+    clerkId,
+    email,
+    fullName: input.fullName.trim(),
+    role: "employee",
+    passwordHash: hashPassword(input.password),
+    avatarUrl: null,
+  });
+  db.employees.push({
+    id: employeeId,
+    profileId,
+    managerId: db.employees.find((e) => e.profileId === db.profiles.find((p) => p.role === "boss")?.id)?.id ?? null,
+    title: input.title.trim() || "Employee",
+    department: input.department.trim() || "General",
+    jobRole: input.jobRole.trim() || "Employee",
+    hireDate: new Date().toISOString().slice(0, 10),
+  });
+  persistDb();
+  return ok({ id: employeeId });
+}
+
+export async function updateEmployee(input: {
+  employeeId: string;
+  fullName: string;
+  email: string;
+  password?: string;
+  title: string;
+  department: string;
+  jobRole: string;
+}): Promise<Result<true>> {
+  const gate = await requireRole("hr");
+  if (!gate.allowed) return fail("Only HR can update employees.");
+  const db = getDb();
+  const employee = db.employees.find((e) => e.id === input.employeeId);
+  if (!employee) return fail("Employee not found.");
+  const profile = db.profiles.find((p) => p.id === employee.profileId);
+  if (!profile || profile.role !== "employee") return fail("Only employee profiles can be edited here.");
+  const email = input.email.toLowerCase().trim();
+  if (db.profiles.some((p) => p.email === email && p.id !== profile.id)) return fail("Email already in use.");
+  profile.fullName = input.fullName.trim();
+  profile.email = email;
+  if (input.password?.trim()) {
+    const { hashPassword } = await import("@/lib/auth/password");
+    profile.passwordHash = hashPassword(input.password.trim());
   }
-  return { actor, rows: flightRisk(getDb(), actor), error: null };
+  employee.title = input.title.trim();
+  employee.department = input.department.trim();
+  employee.jobRole = input.jobRole.trim();
+  persistDb();
+  return ok(true);
 }
 
-export async function heatmap() {
-  const actor = await requireActor();
+export async function deleteEmployee(employeeId: string): Promise<Result<true>> {
+  const gate = await requireRole("hr");
+  if (!gate.allowed) return fail("Only HR can remove employees.");
   const db = getDb();
-  const visiblePeople = peopleOf(db).filter((p) => canAccess(actor, p.id, db));
-  return {
-    actor,
-    people: visiblePeople,
-    skills: db.skills,
-    benchmarks: db.benchmarks,
-    employeeSkills: db.employeeSkills.filter((s) => visiblePeople.some((p) => p.id === s.employeeId)),
-  };
+  const employee = db.employees.find((e) => e.id === employeeId);
+  if (!employee) return fail("Employee not found.");
+  const profile = db.profiles.find((p) => p.id === employee.profileId);
+  if (!profile || profile.role !== "employee") return fail("Only employee accounts can be removed.");
+  const taskIds = db.tasks.filter((t) => t.assigneeId === employeeId).map((t) => t.id);
+  db.tasks = db.tasks.filter((t) => t.assigneeId !== employeeId);
+  db.taskComments = db.taskComments.filter((c) => !taskIds.includes(c.taskId));
+  db.employees = db.employees.filter((e) => e.id !== employeeId);
+  db.profiles = db.profiles.filter((p) => p.id !== employee.profileId);
+  persistDb();
+  return ok(true);
 }
 
-export async function dashboard() {
-  const actor = await requireActor();
+export async function authenticate(email: string, password: string) {
   const db = getDb();
-  const cycle = db.cycles.find((c) => c.status === "active") ?? null;
-  const goals = db.goals.filter((g) => g.employeeId === actor.id && g.cycleId === cycle?.id);
-  const appraisals = db.appraisals.filter((a) => canAccess(actor, a.employeeId, db));
-  const kudos = db.kudos.filter((k) => k.toEmployeeId === actor.id).slice(0, 4);
-  return { actor, cycle, goals, appraisals, kudos, people: peopleOf(db), keyResults: db.keyResults };
+  const profile = db.profiles.find((p) => p.email === email.toLowerCase().trim());
+  if (!profile) return fail("Invalid email or password.");
+  const { verifyPassword } = await import("@/lib/auth/password");
+  if (!verifyPassword(password, profile.passwordHash)) return fail("Invalid email or password.");
+  return ok(profile.clerkId);
 }
 
 export type { Actor } from "./types";

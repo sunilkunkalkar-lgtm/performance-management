@@ -33,3 +33,15 @@ export function ratingLabel(score: number | null | undefined) {
   const labels = ["", "Needs focus", "Developing", "Solid", "Strong", "Exceptional"];
   return `${score} · ${labels[score] ?? ""}`;
 }
+
+export function taskStatusLabel(status: string) {
+  return status.replaceAll("_", " ");
+}
+
+export function priorityLabel(priority: string) {
+  return priority.charAt(0).toUpperCase() + priority.slice(1);
+}
+
+export function roleLabel(role: string) {
+  return role.toUpperCase();
+}

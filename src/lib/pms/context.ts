@@ -2,8 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { dashboardPathForRole } from "./rbac";
 import { actorFromClerkId, seedDb, type Db } from "./seed";
-import type { Actor } from "./types";
+import type { Actor, AppRole } from "./types";
 import { SESSION_COOKIE, readSessionUserId } from "@/lib/session";
 
 const globalForDb = globalThis as unknown as { suiiDb?: Db };
@@ -86,5 +87,14 @@ export async function getActor(): Promise<Actor | null> {
 export async function requireActor() {
   const actor = await getActor();
   if (!actor) redirect("/login");
+  return actor;
+}
+
+export async function requireActorRole(allowed: AppRole | AppRole[]) {
+  const actor = await requireActor();
+  const roles = Array.isArray(allowed) ? allowed : [allowed];
+  if (!roles.includes(actor.role)) {
+    redirect(dashboardPathForRole(actor.role));
+  }
   return actor;
 }

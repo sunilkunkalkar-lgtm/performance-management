@@ -1,9 +1,6 @@
-export type AppRole = "employee" | "manager" | "admin";
-export type GoalStatus = "not_started" | "in_progress" | "achieved";
-export type ApprovalStatus = "draft" | "pending_approval" | "approved" | "rejected";
-export type CycleStatus = "upcoming" | "active" | "closed";
-export type AppraisalStatus = "not_started" | "in_progress" | "submitted" | "completed";
-export type CheckinStatus = "scheduled" | "completed" | "missed";
+export type AppRole = "boss" | "hr" | "employee";
+export type TaskStatus = "not_started" | "in_progress" | "completed";
+export type TaskPriority = "low" | "medium" | "high";
 
 export type Profile = {
   id: string;
@@ -11,6 +8,7 @@ export type Profile = {
   email: string;
   fullName: string;
   role: AppRole;
+  passwordHash: string;
   avatarUrl: string | null;
 };
 
@@ -31,99 +29,45 @@ export type Person = Employee & {
   clerkId: string;
 };
 
-export type ReviewCycle = {
+export type Task = {
   id: string;
-  name: string;
-  kind: string;
-  startDate: string;
-  endDate: string;
-  status: CycleStatus;
-};
-
-export type Goal = {
-  id: string;
-  employeeId: string;
-  cycleId: string;
-  parentGoalId: string | null;
   title: string;
   description: string;
-  status: GoalStatus;
-  approvalStatus: ApprovalStatus;
-  managerComment: string;
-  weight: number;
+  assigneeId: string;
+  createdById: string;
+  status: TaskStatus;
+  priority: TaskPriority;
   dueDate: string | null;
-  submittedAt: string | null;
-  reviewedAt: string | null;
-  createdAt: string;
-};
-
-export type KeyResult = {
-  id: string;
-  goalId: string;
-  title: string;
-  metric: string;
-  target: number;
-  currentValue: number;
-  unit: string;
-  sortOrder: number;
-};
-
-export type Appraisal = {
-  id: string;
-  cycleId: string;
-  employeeId: string;
-  managerId: string;
-  selfStatus: AppraisalStatus;
-  managerStatus: AppraisalStatus;
-  selfSummary: string;
-  managerSummary: string;
-  selfRating: number | null;
-  managerRating: number | null;
-  selfSubmittedAt: string | null;
-  managerSubmittedAt: string | null;
-};
-
-export type AppraisalScore = {
-  id: string;
-  appraisalId: string;
-  competency: string;
-  selfScore: number | null;
-  managerScore: number | null;
-};
-
-export type CheckIn = {
-  id: string;
-  employeeId: string;
-  cycleId: string;
-  scheduledAt: string;
+  isBlocked: boolean;
   completedAt: string | null;
-  status: CheckinStatus;
-  notes: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
-export type Kudo = {
+export type TaskComment = {
   id: string;
-  fromEmployeeId: string;
-  toEmployeeId: string;
-  badge: string;
-  message: string;
+  taskId: string;
+  authorId: string;
+  body: string;
   createdAt: string;
 };
 
-export type Skill = { id: string; name: string; category: string };
-export type RoleBenchmark = { id: string; jobRole: string; skillId: string; expectedLevel: number };
-export type EmployeeSkill = { employeeId: string; skillId: string; level: number };
+export type ExecutiveSummary = {
+  totalActive: number;
+  completionRate: number;
+  activeBlockers: number;
+};
 
-export type FlightRiskRow = {
+export type ProductivityScorecard = {
   employeeId: string;
   fullName: string;
-  title: string;
   department: string;
-  managerId: string | null;
-  goalCompletionRate: number;
-  missedCheckins: number;
-  pendingReviews: number;
-  riskScore: number;
+  title: string;
+  totalTasks: number;
+  completedTasks: number;
+  inProgressTasks: number;
+  blockedTasks: number;
+  completionRate: number;
 };
 
 export type Actor = Person;
