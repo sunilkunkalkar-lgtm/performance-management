@@ -15,7 +15,7 @@ const fraunces = Fraunces({
 
 export const metadata: Metadata = {
   title: "Suii · Performance Management",
-  description: "Cascading OKRs, 1:1 reviews, kudos, skills, and flight-risk radar.",
+  description: "Secure 3-role task management with boss, HR, and employee dashboards.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
