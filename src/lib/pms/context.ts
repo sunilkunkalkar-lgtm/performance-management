@@ -84,6 +84,9 @@ export async function getActor(): Promise<Actor | null> {
 
 export async function requireActor() {
   const actor = await getActor();
-  if (!actor) redirect("/login");
+  if (!actor) {
+    if (clerkEnabled()) redirect("/access-denied");
+    redirect("/login");
+  }
   return actor;
 }

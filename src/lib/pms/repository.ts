@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { createServerSupabaseClient, requireServiceSupabaseClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/database.types";
 import {
   mapAppraisal,
@@ -19,7 +19,7 @@ import {
   toKeyResultInsert,
   toKudoInsert,
 } from "@/lib/supabase/mappers";
-import { clerkEnabled, supabaseEnabled } from "./config";
+import { clerkEnabled, supabaseEnabled, usesSupabase } from "./config";
 import { getDb, persistDb } from "./context";
 import { actorFromClerkId, canAccess, fail, flightRisk, ok, peopleOf, type Db } from "./seed";
 import type {
@@ -44,8 +44,21 @@ export async function getSupabaseClient(): Promise<TypedSupabaseClient | null> {
   const { auth } = await import("@clerk/nextjs/server");
   return createServerSupabaseClient(async () => {
     const session = await auth();
-    return session.getToken();
+    const token = await session.getToken();
+    if (!token) {
+      throw new Error(
+        "No Clerk session token for Supabase. Enable the Clerk + Supabase integration in the Clerk dashboard and add Clerk as a third-party auth provider in Supabase.",
+      );
+    }
+    return token;
   });
+}
+
+function supabaseAuthHelp(error: { message: string; code?: string }) {
+  if (error.code === "42501" || /permission denied|row-level security/i.test(error.message)) {
+    return "Supabase rejected the request. Confirm Clerk is added as a third-party auth provider in Supabase and that session tokens include role: authenticated.";
+  }
+  return error.message;
 }
 
 async function loadDbFromSupabase(client: TypedSupabaseClient): Promise<Db> {
@@ -92,7 +105,7 @@ async function loadDbFromSupabase(client: TypedSupabaseClient): Promise<Db> {
   employeeSkillsRes,
   ];
   for (const res of tables) {
-    if (res.error) throw new Error(res.error.message);
+    if (res.error) throw new Error(supabaseAuthHelp(res.error));
   }
 
   return {
@@ -134,7 +147,7 @@ export async function getActorFromStore(clerkId: string): Promise<Actor | null> 
     .select("*")
     .eq("clerk_id", clerkId)
     .maybeSingle();
-  if (profileError) throw new Error(profileError.message);
+  if (profileError) throw new Error(supabaseAuthHelp(profileError));
   if (!profile) return null;
 
   const { data: employee, error: employeeError } = await client
@@ -142,7 +155,7 @@ export async function getActorFromStore(clerkId: string): Promise<Actor | null> 
     .select("*")
     .eq("profile_id", profile.id)
     .maybeSingle();
-  if (employeeError) throw new Error(employeeError.message);
+  if (employeeError) throw new Error(supabaseAuthHelp(employeeError));
   if (!employee) return null;
 
   return mapPerson(employee, profile);
@@ -154,8 +167,7 @@ export async function linkClerkProfile(input: {
   fullName: string;
   avatarUrl: string | null;
 }): Promise<Actor | null> {
-  const client = await getSupabaseClient();
-  if (!client) {
+  if (!usesSupabase()) {
     const db = getDb();
     const profile = db.profiles.find((p) => p.email === input.email);
     if (!profile) return null;
@@ -164,7 +176,11 @@ export async function linkClerkProfile(input: {
     return actorFromClerkId(db, input.clerkId);
   }
 
-  const { data: existing, error: existingError } = await client
+  // Seed profiles start with placeholder clerk_id values. Linking the real Clerk
+  // user id must bypass RLS via the service role key.
+  const admin = requireServiceSupabaseClient();
+
+  const { data: existing, error: existingError } = await admin
     .from("profiles")
     .select("id")
     .eq("email", input.email)
@@ -172,7 +188,7 @@ export async function linkClerkProfile(input: {
   if (existingError) throw new Error(existingError.message);
 
   if (existing) {
-    const { error } = await client
+    const { error } = await admin
       .from("profiles")
       .update({
         clerk_id: input.clerkId,
@@ -182,7 +198,7 @@ export async function linkClerkProfile(input: {
       .eq("id", existing.id);
     if (error) throw new Error(error.message);
   } else {
-    const { error } = await client.from("profiles").insert({
+    const { error } = await admin.from("profiles").insert({
       clerk_id: input.clerkId,
       email: input.email,
       full_name: input.fullName,

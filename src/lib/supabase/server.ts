@@ -21,3 +21,13 @@ export function createServiceSupabaseClient(): TypedSupabaseClient | null {
   if (!url || !service) return null;
   return createClient<Database>(url, service, { auth: { persistSession: false } });
 }
+
+export function requireServiceSupabaseClient(): TypedSupabaseClient {
+  const client = createServiceSupabaseClient();
+  if (!client) {
+    throw new Error(
+      "SUPABASE_SERVICE_ROLE_KEY is required for profile linking when using Clerk + Supabase.",
+    );
+  }
+  return client;
+}
