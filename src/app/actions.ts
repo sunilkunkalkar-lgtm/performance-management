@@ -115,9 +115,9 @@ export async function createEmployeeAction(formData: FormData) {
     department: String(formData.get("department") ?? ""),
     jobRole: String(formData.get("jobRole") ?? ""),
   });
-  if (result.error) redirect("/dashboard/hr?error=" + encodeURIComponent(result.error));
-  revalidatePath("/dashboard/hr");
-  redirect("/dashboard/hr?created=1");
+  if (result.error) redirect("/dashboard/hr/add?error=" + encodeURIComponent(result.error));
+  revalidatePath("/dashboard/hr", "layout");
+  redirect("/dashboard/hr/employees?created=1");
 }
 
 export async function updateEmployeeAction(formData: FormData) {
@@ -130,14 +130,14 @@ export async function updateEmployeeAction(formData: FormData) {
     department: String(formData.get("department") ?? ""),
     jobRole: String(formData.get("jobRole") ?? ""),
   });
-  if (result.error) redirect("/dashboard/hr?error=" + encodeURIComponent(result.error));
-  revalidatePath("/dashboard/hr");
-  redirect("/dashboard/hr?updated=1");
+  if (result.error) redirect("/dashboard/hr/employees?error=" + encodeURIComponent(result.error));
+  revalidatePath("/dashboard/hr", "layout");
+  redirect("/dashboard/hr/employees?updated=1");
 }
 
 export async function deleteEmployeeAction(formData: FormData) {
   const result = await deleteEmployee(String(formData.get("employeeId") ?? ""));
-  if (result.error) redirect("/dashboard/hr?error=" + encodeURIComponent(result.error));
-  revalidatePath("/dashboard/hr");
-  redirect("/dashboard/hr?deleted=1");
+  if (result.error) redirect("/dashboard/hr/employees?error=" + encodeURIComponent(result.error));
+  revalidatePath("/dashboard/hr", "layout");
+  redirect("/dashboard/hr/employees?deleted=1");
 }

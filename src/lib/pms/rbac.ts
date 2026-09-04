@@ -3,7 +3,7 @@ import type { Db } from "./seed";
 
 export const DASHBOARD_BY_ROLE: Record<AppRole, string> = {
   boss: "/dashboard/boss",
-  hr: "/dashboard/hr",
+  hr: "/dashboard/hr/employees",
   employee: "/dashboard/employee",
 };
 

@@ -1,11 +1,13 @@
 import Link from "next/link";
-import { LayoutDashboard, LogOut } from "lucide-react";
+import { LogOut } from "lucide-react";
 import { ClerkSignOut } from "@/components/clerk-sign-out";
+import { SidebarNav } from "@/components/sidebar-nav";
 import { logoutAction, resetDemoAction } from "@/app/actions";
 import { clerkEnabled } from "@/lib/pms/context";
+import { ROLE_NAV, ROLE_SETTINGS } from "@/lib/hr-nav";
 import { dashboardPathForRole } from "@/lib/pms/rbac";
 import type { Actor } from "@/lib/pms/types";
-import { initials, roleLabel } from "@/lib/format";
+import { initials } from "@/lib/format";
 
 export function AppShell({
   user,
@@ -19,7 +21,7 @@ export function AppShell({
 
   return (
     <div className="min-h-full lg:grid lg:grid-cols-[240px_1fr]">
-      <aside className="border-b border-line bg-ink text-paper lg:border-b-0 lg:border-r lg:min-h-screen">
+      <aside className="flex flex-col border-b border-line bg-ink text-paper lg:border-b-0 lg:border-r lg:min-h-screen">
         <div className="px-5 py-5">
           <Link href={dashboardHref} className="block">
             <p className="font-serif text-2xl tracking-tight">Suii</p>
@@ -33,15 +35,10 @@ export function AppShell({
             ) : null}
           </Link>
         </div>
-        <nav className="flex gap-1 overflow-x-auto px-3 pb-3 lg:flex-col">
-          <Link
-            href={dashboardHref}
-            className="flex items-center gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-sm text-paper/80 hover:bg-white/10 hover:text-paper"
-          >
-            <LayoutDashboard className="h-4 w-4" />
-            {roleLabel(user.role)} dashboard
-          </Link>
-        </nav>
+        <SidebarNav
+          items={ROLE_NAV[user.role]}
+          settings={ROLE_SETTINGS[user.role]}
+        />
         <div className="hidden px-5 py-5 lg:mt-8 lg:block">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gold text-sm font-medium text-ink">

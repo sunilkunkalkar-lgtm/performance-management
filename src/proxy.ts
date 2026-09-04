@@ -16,7 +16,7 @@ function dashboardPathForClerkId(clerkId: string): string {
     if (!profile) return "/dashboard";
     const routes: Record<string, string> = {
       boss: "/dashboard/boss",
-      hr: "/dashboard/hr",
+      hr: "/dashboard/hr/employees",
       employee: "/dashboard/employee",
     };
     return routes[profile.role] ?? "/dashboard";
