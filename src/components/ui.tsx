@@ -62,14 +62,16 @@ export function AppShell({
                     <LogOut className="h-3 w-3" /> Sign out
                   </button>
                 </form>
-                <form action={resetDemoAction}>
-                  <button
-                    type="submit"
-                    className="text-[10px] uppercase tracking-[0.16em] text-paper/40 hover:text-paper/80"
-                  >
-                    Reset mock data
-                  </button>
-                </form>
+                {user.role !== "hr" ? (
+                  <form action={resetDemoAction}>
+                    <button
+                      type="submit"
+                      className="text-[10px] uppercase tracking-[0.16em] text-paper/40 hover:text-paper/80"
+                    >
+                      Reset mock data
+                    </button>
+                  </form>
+                ) : null}
               </div>
             )}
           </div>
