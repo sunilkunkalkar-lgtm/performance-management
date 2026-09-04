@@ -1,29 +1,11 @@
 import Link from "next/link";
-import {
-  Award,
-  ClipboardCheck,
-  LayoutDashboard,
-  LogOut,
-  Radar,
-  Sparkles,
-  Target,
-  Users,
-} from "lucide-react";
+import { LayoutDashboard, LogOut } from "lucide-react";
 import { ClerkSignOut } from "@/components/clerk-sign-out";
 import { logoutAction, resetDemoAction } from "@/app/actions";
 import { clerkEnabled } from "@/lib/pms/context";
+import { dashboardPathForRole } from "@/lib/pms/rbac";
 import type { Actor } from "@/lib/pms/types";
-import { initials } from "@/lib/format";
-
-const NAV = [
-  { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
-  { href: "/goals", label: "OKRs", icon: Target },
-  { href: "/reviews", label: "1:1 Reviews", icon: ClipboardCheck },
-  { href: "/radar", label: "Flight Risk", icon: Radar },
-  { href: "/kudos", label: "Kudos", icon: Award },
-  { href: "/skills", label: "Skills", icon: Sparkles },
-  { href: "/people", label: "People", icon: Users },
-];
+import { initials, roleLabel } from "@/lib/format";
 
 export function AppShell({
   user,
@@ -33,33 +15,32 @@ export function AppShell({
   children: React.ReactNode;
 }) {
   const signedInWithClerk = clerkEnabled();
+  const dashboardHref = dashboardPathForRole(user.role);
+
   return (
     <div className="min-h-full lg:grid lg:grid-cols-[240px_1fr]">
       <aside className="border-b border-line bg-ink text-paper lg:border-b-0 lg:border-r lg:min-h-screen">
         <div className="px-5 py-5">
-          <Link href="/dashboard" className="block">
+          <Link href={dashboardHref} className="block">
             <p className="font-serif text-2xl tracking-tight">Suii</p>
             <p className="mt-0.5 text-xs uppercase tracking-[0.18em] text-paper/60">
-              Performance
+              Task management
             </p>
             {!signedInWithClerk ? (
               <p className="mt-3 inline-flex rounded-full bg-gold/20 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-gold">
-                Demo · local mock
+                Demo · credential auth
               </p>
             ) : null}
           </Link>
         </div>
         <nav className="flex gap-1 overflow-x-auto px-3 pb-3 lg:flex-col">
-          {NAV.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="flex items-center gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-sm text-paper/80 hover:bg-white/10 hover:text-paper"
-            >
-              <item.icon className="h-4 w-4" />
-              {item.label}
-            </Link>
-          ))}
+          <Link
+            href={dashboardHref}
+            className="flex items-center gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-sm text-paper/80 hover:bg-white/10 hover:text-paper"
+          >
+            <LayoutDashboard className="h-4 w-4" />
+            {roleLabel(user.role)} dashboard
+          </Link>
         </nav>
         <div className="hidden px-5 py-5 lg:mt-8 lg:block">
           <div className="flex items-center gap-3">
@@ -215,3 +196,21 @@ export function Empty({ title, body }: { title: string; body: string }) {
     </Card>
   );
 }
+
+export function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-sm font-medium text-ink">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+export const inputClassName =
+  "w-full rounded-xl border border-line bg-cream/40 px-3 py-2 text-sm ring-teal focus:ring-2";

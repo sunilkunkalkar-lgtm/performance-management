@@ -1,25 +1,36 @@
 # Suii Performance Management System
 
-The app is set up for **local demo mode**: mock org data and cookie authentication. Clerk and Supabase are not required.
+A secure, 3-role task management app with individual email/password credentials and role-isolated dashboards.
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open http://localhost:3000 and click a persona (Aisha = IC, Marcus = manager, Priya = admin).
+Open http://localhost:3000 and sign in with one of the demo accounts below.
 
-Mock data is stored in `.data/pms-demo.json` so changes survive restarts. Use **Reset mock data** in the sidebar to restore the seed.
+Mock data is stored in `.data/pms-demo.json`. Use **Reset mock data** in the sidebar to restore the seed.
 
-## Features you can test
+## Demo accounts
 
-1. Cascading OKRs with manager approval
-2. 1:1 self-appraisal and manager review
-3. Flight Risk Radar (managers)
-4. 360° kudos board
-5. Skills heatmap vs role benchmarks
+| Role | Email | Password |
+|------|-------|----------|
+| Boss | boss@suii.app | boss123 |
+| HR | hr@suii.app | hr123 |
+| Employee | aisha@suii.app | employee123 |
+| Employee | samir@suii.app | employee123 |
+| Employee | leo@suii.app | employee123 |
 
-Access rules match the planned RLS: employees see their own goals/reviews; managers see direct reports.
+## Role dashboards
+
+- **Boss** (`/dashboard/boss`) — create/assign tasks, live progress board, review completed work
+- **HR** (`/dashboard/hr`) — employee CRUD, task distribution, productivity scorecards (read-only tasks)
+- **Employee** (`/dashboard/employee`) — own tasks only; update status, flag blockers, send progress comments
+
+## Signature features
+
+1. **Flag Blocker** — employees can flag tasks; Boss & HR see a prominent "Needs attention" alert
+2. **Executive Summary Card** — active tasks, completion %, and blocker count on Boss & HR dashboards
 
 ## Later: Clerk + Supabase
 

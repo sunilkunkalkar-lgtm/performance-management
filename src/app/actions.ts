@@ -4,32 +4,48 @@ import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { SESSION_COOKIE, signSession } from "@/lib/session";
-import { getDb, resetDb } from "@/lib/pms/context";
+import { resetDb, getDb } from "@/lib/pms/context";
+import { dashboardPathForRole } from "@/lib/pms/rbac";
+import { actorFromClerkId } from "@/lib/pms/seed";
 import {
-  createGoal,
-  decideGoal,
-  postKudo,
-  saveManagerAppraisal,
-  saveSelfAppraisal,
-  submitGoal,
-  updateGoalProgress,
+  addTaskComment,
+  authenticate,
+  createEmployee,
+  createTask,
+  deleteEmployee,
+  toggleTaskBlocker,
+  updateEmployee,
+  updateTaskStatus,
 } from "@/lib/pms/queries";
-import type { GoalStatus } from "@/lib/pms/types";
+import type { TaskPriority, TaskStatus } from "@/lib/pms/types";
 
-export async function demoLoginAction(formData: FormData) {
-  const email = String(formData.get("email") ?? "")
-    .toLowerCase()
-    .trim();
-  const profile = getDb().profiles.find((p) => p.email === email);
-  if (!profile) redirect("/login?error=" + encodeURIComponent("Unknown demo account."));
+async function dashboardForSession() {
   const jar = await cookies();
-  jar.set(SESSION_COOKIE, signSession(profile.clerkId), {
+  const clerkId = jar.get(SESSION_COOKIE)?.value;
+  if (!clerkId) return "/login";
+  const { readSessionUserId } = await import("@/lib/session");
+  const userId = readSessionUserId(clerkId);
+  if (!userId) return "/login";
+  const actor = actorFromClerkId(getDb(), userId);
+  return actor ? dashboardPathForRole(actor.role) : "/login";
+}
+
+export async function loginAction(formData: FormData) {
+  const email = String(formData.get("email") ?? "");
+  const password = String(formData.get("password") ?? "");
+  const result = await authenticate(email, password);
+  if (result.error || !result.data) {
+    redirect("/login?error=" + encodeURIComponent(result.error ?? "Sign in failed."));
+  }
+  const jar = await cookies();
+  jar.set(SESSION_COOKIE, signSession(result.data), {
     httpOnly: true,
     sameSite: "lax",
     path: "/",
     maxAge: 60 * 60 * 24 * 14,
   });
-  redirect("/dashboard");
+  const actor = actorFromClerkId(getDb(), result.data);
+  redirect(actor ? dashboardPathForRole(actor.role) : "/dashboard");
 }
 
 export async function logoutAction() {
@@ -41,98 +57,87 @@ export async function logoutAction() {
 export async function resetDemoAction() {
   resetDb();
   revalidatePath("/");
-  redirect("/dashboard");
+  redirect(await dashboardForSession());
 }
 
-export async function createGoalAction(formData: FormData) {
-  const result = await createGoal({
+export async function createTaskAction(formData: FormData) {
+  const result = await createTask({
     title: String(formData.get("title") ?? ""),
     description: String(formData.get("description") ?? ""),
-    parentGoalId: String(formData.get("parentGoalId") ?? "") || null,
-    weight: Number(formData.get("weight") ?? 25),
+    assigneeId: String(formData.get("assigneeId") ?? ""),
     dueDate: String(formData.get("dueDate") ?? ""),
-    krTitle: String(formData.get("krTitle") ?? ""),
-    krTarget: Number(formData.get("krTarget") ?? 1),
-    krUnit: String(formData.get("krUnit") ?? ""),
+    priority: String(formData.get("priority") ?? "medium") as TaskPriority,
   });
-  if (result.error || !result.data) redirect("/goals/new?error=" + encodeURIComponent(result.error ?? "Could not save goal."));
-  revalidatePath("/goals");
-  redirect(`/goals/${result.data.id}`);
+  if (result.error) redirect("/dashboard/boss?error=" + encodeURIComponent(result.error));
+  revalidatePath("/dashboard/boss");
+  redirect("/dashboard/boss?created=1");
 }
 
-export async function submitGoalAction(formData: FormData) {
-  const id = String(formData.get("goalId") ?? "");
-  const result = await submitGoal(id);
-  if (result.error) redirect(`/goals/${id}?error=${encodeURIComponent(result.error)}`);
-  revalidatePath(`/goals/${id}`);
-  redirect(`/goals/${id}`);
+export async function updateTaskStatusAction(formData: FormData) {
+  const taskId = String(formData.get("taskId") ?? "");
+  const status = String(formData.get("status") ?? "") as TaskStatus;
+  const result = await updateTaskStatus(taskId, status);
+  if (result.error) redirect("/dashboard/employee?error=" + encodeURIComponent(result.error));
+  revalidatePath("/dashboard/employee");
+  revalidatePath("/dashboard/boss");
+  revalidatePath("/dashboard/hr");
+  redirect("/dashboard/employee");
 }
 
-export async function decideGoalAction(formData: FormData) {
-  const id = String(formData.get("goalId") ?? "");
-  const decision = String(formData.get("decision") ?? "") as "approved" | "rejected";
-  const comment = String(formData.get("comment") ?? "");
-  const result = await decideGoal(id, decision, comment);
-  if (result.error) redirect(`/goals/${id}?error=${encodeURIComponent(result.error)}`);
-  revalidatePath(`/goals/${id}`);
-  redirect(`/goals/${id}`);
+export async function toggleBlockerAction(formData: FormData) {
+  const taskId = String(formData.get("taskId") ?? "");
+  const blocked = String(formData.get("blocked") ?? "") === "true";
+  const result = await toggleTaskBlocker(taskId, blocked);
+  if (result.error) redirect("/dashboard/employee?error=" + encodeURIComponent(result.error));
+  revalidatePath("/dashboard/employee");
+  revalidatePath("/dashboard/boss");
+  revalidatePath("/dashboard/hr");
+  redirect("/dashboard/employee");
 }
 
-export async function updateProgressAction(formData: FormData) {
-  const id = String(formData.get("goalId") ?? "");
-  const result = await updateGoalProgress({
-    goalId: id,
-    status: String(formData.get("status") ?? "in_progress") as GoalStatus,
-    currentValue: Number(formData.get("currentValue") ?? 0),
+export async function addCommentAction(formData: FormData) {
+  const taskId = String(formData.get("taskId") ?? "");
+  const body = String(formData.get("body") ?? "");
+  const result = await addTaskComment(taskId, body);
+  if (result.error) redirect("/dashboard/employee?error=" + encodeURIComponent(result.error));
+  revalidatePath("/dashboard/employee");
+  revalidatePath("/dashboard/boss");
+  revalidatePath("/dashboard/hr");
+  redirect("/dashboard/employee");
+}
+
+export async function createEmployeeAction(formData: FormData) {
+  const result = await createEmployee({
+    fullName: String(formData.get("fullName") ?? ""),
+    email: String(formData.get("email") ?? ""),
+    password: String(formData.get("password") ?? ""),
+    title: String(formData.get("title") ?? ""),
+    department: String(formData.get("department") ?? ""),
+    jobRole: String(formData.get("jobRole") ?? ""),
   });
-  if (result.error) redirect(`/goals/${id}?error=${encodeURIComponent(result.error)}`);
-  revalidatePath(`/goals/${id}`);
-  redirect(`/goals/${id}`);
+  if (result.error) redirect("/dashboard/hr?error=" + encodeURIComponent(result.error));
+  revalidatePath("/dashboard/hr");
+  redirect("/dashboard/hr?created=1");
 }
 
-export async function saveSelfReviewAction(formData: FormData) {
-  const id = String(formData.get("appraisalId") ?? "");
-  const scoreIds = formData.getAll("scoreId").map(String);
-  const result = await saveSelfAppraisal({
-    appraisalId: id,
-    summary: String(formData.get("selfSummary") ?? ""),
-    rating: Number(formData.get("selfRating") ?? 0) || null,
-    scores: scoreIds.map((scoreId) => ({
-      id: scoreId,
-      value: Number(formData.get(`self-${scoreId}`) ?? 0) || null,
-    })),
-    submit: String(formData.get("intent") ?? "") === "submit",
+export async function updateEmployeeAction(formData: FormData) {
+  const result = await updateEmployee({
+    employeeId: String(formData.get("employeeId") ?? ""),
+    fullName: String(formData.get("fullName") ?? ""),
+    email: String(formData.get("email") ?? ""),
+    password: String(formData.get("password") ?? ""),
+    title: String(formData.get("title") ?? ""),
+    department: String(formData.get("department") ?? ""),
+    jobRole: String(formData.get("jobRole") ?? ""),
   });
-  if (result.error) redirect(`/reviews/${id}?error=${encodeURIComponent(result.error)}`);
-  revalidatePath(`/reviews/${id}`);
-  redirect(`/reviews/${id}`);
+  if (result.error) redirect("/dashboard/hr?error=" + encodeURIComponent(result.error));
+  revalidatePath("/dashboard/hr");
+  redirect("/dashboard/hr?updated=1");
 }
 
-export async function saveManagerReviewAction(formData: FormData) {
-  const id = String(formData.get("appraisalId") ?? "");
-  const scoreIds = formData.getAll("scoreId").map(String);
-  const result = await saveManagerAppraisal({
-    appraisalId: id,
-    summary: String(formData.get("managerSummary") ?? ""),
-    rating: Number(formData.get("managerRating") ?? 0) || null,
-    scores: scoreIds.map((scoreId) => ({
-      id: scoreId,
-      value: Number(formData.get(`mgr-${scoreId}`) ?? 0) || null,
-    })),
-    submit: String(formData.get("intent") ?? "") === "submit",
-  });
-  if (result.error) redirect(`/reviews/${id}?error=${encodeURIComponent(result.error)}`);
-  revalidatePath(`/reviews/${id}`);
-  redirect(`/reviews/${id}`);
-}
-
-export async function sendKudoAction(formData: FormData) {
-  const result = await postKudo(
-    String(formData.get("toId") ?? ""),
-    String(formData.get("badge") ?? ""),
-    String(formData.get("message") ?? ""),
-  );
-  if (result.error) redirect(`/kudos?error=${encodeURIComponent(result.error)}`);
-  revalidatePath("/kudos");
-  redirect("/kudos");
+export async function deleteEmployeeAction(formData: FormData) {
+  const result = await deleteEmployee(String(formData.get("employeeId") ?? ""));
+  if (result.error) redirect("/dashboard/hr?error=" + encodeURIComponent(result.error));
+  revalidatePath("/dashboard/hr");
+  redirect("/dashboard/hr?deleted=1");
 }
