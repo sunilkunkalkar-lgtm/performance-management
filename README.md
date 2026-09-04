@@ -17,9 +17,9 @@ Mock data is stored in `.data/pms-demo.json`. Use **Reset mock data** in the sid
 |------|-------|----------|
 | Boss | boss@suii.app | boss123 |
 | HR | hr@suii.app | hr123 |
-| Employee | aisha@suii.app | employee123 |
-| Employee | samir@suii.app | employee123 |
-| Employee | leo@suii.app | employee123 |
+| Employee (23 accounts) | e.g. aisha@suii.app, maya@suii.app, jordan@suii.app | employee123 |
+
+All employee accounts use the password `employee123`. Reset mock data from the sidebar after pulling seed updates.
 
 ## Role dashboards
 

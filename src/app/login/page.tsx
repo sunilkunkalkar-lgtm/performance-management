@@ -72,11 +72,14 @@ export default async function LoginPage({
           <div className="mt-8 rounded-2xl border border-line bg-cream/30 p-4">
             <p className="text-xs uppercase tracking-[0.16em] text-ink-soft">Demo accounts</p>
             <ul className="mt-3 space-y-2 text-sm text-ink-soft">
-              {SEED_CREDENTIALS.map((account) => (
+              {SEED_CREDENTIALS.filter((account) => account.label !== "Employee").map((account) => (
                 <li key={account.email}>
                   <span className="font-medium text-ink">{account.label}</span>: {account.email} / {account.password}
                 </li>
               ))}
+              <li>
+                <span className="font-medium text-ink">Employees</span>: 23 seeded accounts (e.g. aisha@suii.app, maya@suii.app, jordan@suii.app) / employee123
+              </li>
             </ul>
           </div>
         </div>
