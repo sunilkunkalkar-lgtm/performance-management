@@ -24,3 +24,5 @@ Access rules match the planned RLS: employees see their own goals/reviews; manag
 ## Later: Clerk + Supabase
 
 Set `AUTH_MODE=clerk` and add keys from `.env.example`. Apply `supabase/schema.sql` then `supabase/seed.sql`.
+
+When both Clerk and Supabase env vars are set, the app reads and writes through Supabase (with RLS) instead of the local JSON file. TypeScript types for the database live in `src/lib/supabase/database.types.ts`; row mappers in `src/lib/supabase/mappers.ts` convert snake_case columns to the app’s camelCase types in `src/lib/pms/types.ts`.
